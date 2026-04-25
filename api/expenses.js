@@ -1,4 +1,5 @@
-const { sql } = require('@vercel/postgres');
+const { neon } = require('@neondatabase/serverless');
+const sql = neon(process.env.DATABASE_URL);
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -10,7 +11,7 @@ module.exports = async function handler(req, res) {
   try {
     // ── GET : récupérer toutes les dépenses ──────────────────────────────
     if (req.method === 'GET') {
-      const { rows } = await sql`
+      const rows = await sql`
         SELECT id, date, label, amount::float AS amount, type, category
         FROM expenses
         ORDER BY date DESC, created_at DESC

@@ -8,7 +8,7 @@ datasource db {
 }
 
 model Expense {
-  id         String   @id
+  id         String   @id @default(cuid())
   date       String
   label      String
   amount     Float

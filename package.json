@@ -2,11 +2,7 @@
   "name": "calendrier-budget",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "postinstall": "prisma generate"
-  },
   "dependencies": {
-    "@prisma/client": "^6.0.0",
-    "prisma": "^6.0.0"
+    "@vercel/postgres": "^0.10.0"
   }
 }

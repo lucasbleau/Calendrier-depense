@@ -1,8 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-// Singleton : évite de créer trop de connexions dans les fonctions serverless
-const prisma = global.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== 'production') global.prisma = prisma;
+const { sql } = require('@vercel/postgres');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,23 +10,26 @@ module.exports = async function handler(req, res) {
   try {
     // ── GET : récupérer toutes les dépenses ──────────────────────────────
     if (req.method === 'GET') {
-      const expenses = await prisma.expense.findMany({
-        orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
-        select: { id: true, date: true, label: true, amount: true, type: true, category: true },
-      });
-      return res.json(expenses);
+      const { rows } = await sql`
+        SELECT id, date, label, amount::float AS amount, type, category
+        FROM expenses
+        ORDER BY date DESC, created_at DESC
+      `;
+      return res.json(rows);
     }
 
     // ── POST : créer une ou plusieurs dépenses ───────────────────────────
     if (req.method === 'POST') {
       const items = Array.isArray(req.body) ? req.body : [req.body];
 
-      await prisma.expense.createMany({
-        data: items.map(({ id, date, label, amount, type, category }) => ({
-          id, date, label, amount: parseFloat(amount), type, category,
-        })),
-        skipDuplicates: true,
-      });
+      for (const item of items) {
+        const { id, date, label, amount, type, category } = item;
+        await sql`
+          INSERT INTO expenses (id, date, label, amount, type, category)
+          VALUES (${id}, ${date}, ${label}, ${amount}, ${type}, ${category})
+          ON CONFLICT (id) DO NOTHING
+        `;
+      }
 
       return res.json({ ok: true, count: items.length });
     }
@@ -40,7 +39,7 @@ module.exports = async function handler(req, res) {
       const { id } = req.query;
       if (!id) return res.status(400).json({ error: 'Paramètre id requis' });
 
-      await prisma.expense.deleteMany({ where: { id } });
+      await sql`DELETE FROM expenses WHERE id = ${id}`;
       return res.json({ ok: true });
     }
 

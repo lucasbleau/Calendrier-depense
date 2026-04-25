@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendrier Budget</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ─── Header ──────────────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="app-logo">Calendrier <span>Budget</span></div>
+
+    <div class="view-tabs" role="tablist">
+      <button id="btn-view-calendar" class="active" role="tab" aria-selected="true">Calendrier</button>
+      <button id="btn-view-stats" role="tab" aria-selected="false">Statistiques</button>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-primary" id="btn-import">Importer CSV</button>
+    </div>
+  </header>
+
+  <!-- ─── Vue Calendrier ──────────────────────────────────────────────── -->
+  <div id="view-calendar">
+
+    <div class="calendar-nav">
+      <button class="cal-nav-btn" id="prev-month" aria-label="Mois précédent">&#8592;</button>
+      <span id="month-title" aria-live="polite"></span>
+      <button class="cal-nav-btn" id="next-month" aria-label="Mois suivant">&#8594;</button>
+      <div class="cal-selectors">
+        <select id="select-month" aria-label="Choisir le mois"></select>
+        <select id="select-year" aria-label="Choisir l'année"></select>
+      </div>
+    </div>
+
+    <div class="calendar-body">
+      <div class="calendar-grid-wrap">
+        <div id="calendar-grid" role="grid"></div>
+      </div>
+      <aside id="day-panel" class="hidden" aria-label="Détail du jour"></aside>
+    </div>
+
+  </div>
+
+  <!-- ─── Vue Statistiques ────────────────────────────────────────────── -->
+  <div id="view-stats" class="hidden">
+
+    <div class="stats-section">
+      <div class="stats-section-title" id="stats-month-title">Mois courant</div>
+      <div class="stats-kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Dépenses</div>
+          <div class="kpi-value depense-color" id="kpi-depenses">—</div>
+          <div class="kpi-diff" id="kpi-diff"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Revenus</div>
+          <div class="kpi-value revenu-color" id="kpi-revenus">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Solde du mois</div>
+          <div class="kpi-value" id="kpi-solde">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <div class="stats-section-title">Année <span id="kpi-year-label"></span></div>
+      <div class="stats-kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Dépenses annuelles</div>
+          <div class="kpi-value depense-color" id="kpi-year-dep">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Revenus annuels</div>
+          <div class="kpi-value revenu-color" id="kpi-year-rev">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Solde annuel</div>
+          <div class="kpi-value" id="kpi-year-solde">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-wrap">
+        <div class="chart-title">Dépenses &amp; Revenus — 12 mois</div>
+        <canvas id="bar-chart"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">Répartition par catégorie</div>
+        <div class="donut-row">
+          <div class="donut-wrap"><canvas id="donut-chart"></canvas></div>
+          <ul class="cat-list" id="cat-list"></ul>
+        </div>
+        <p id="cat-empty" class="cat-empty hidden">Aucune dépense ce mois.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ─── Modal : Nouvelle opération ─────────────────────────────────── -->
+  <div id="modal-add" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-add-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-add-title">Nouvelle opération</h2>
+        <button class="btn-icon" id="modal-add-close" aria-label="Fermer">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="add-date" />
+        <div class="field">
+          <label for="add-label">Libellé</label>
+          <input type="text" id="add-label" placeholder="Ex : Carrefour, Loyer, Salaire…" autocomplete="off" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="add-amount">Montant (€)</label>
+            <input type="text" id="add-amount" placeholder="0,00" inputmode="decimal" />
+          </div>
+          <div class="field">
+            <label for="add-type">Type</label>
+            <select id="add-type">
+              <option value="depense">Dépense</option>
+              <option value="revenu">Revenu</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="add-category">Catégorie</label>
+          <select id="add-category"></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-add">Annuler</button>
+        <button class="btn-primary" id="btn-save-add">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal : Import CSV ──────────────────────────────────────────── -->
+  <div id="modal-import" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-import-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-import-title">Importer un relevé CSV</h2>
+        <button class="btn-icon" id="modal-import-close" aria-label="Fermer">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="import-zone" id="import-zone">
+          <label for="import-file">
+            <span class="import-icon">&#8679;</span>
+            <strong>Choisir un fichier CSV</strong>
+            <span class="import-hint">Crédit Mutuel &middot; Revolut &middot; formats courants</span>
+          </label>
+          <input type="file" id="import-file" accept=".csv,.txt" />
+        </div>
+        <div id="import-preview"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-import">Annuler</button>
+        <button class="btn-primary" id="btn-confirm-import" disabled>Importer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden" role="status" aria-live="polite"></div>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay" class="hidden" aria-label="Chargement en cours">
+    <div class="spinner"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

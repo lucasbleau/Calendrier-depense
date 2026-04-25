@@ -1,0 +1,846 @@
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constantes
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = 'expense-calendar-data-v1';
+
+const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+const DAYS_SHORT = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+const CATEGORIES = [
+  { id: 'courses',     label: 'Courses',     color: '#7B9E6B' },
+  { id: 'voiture',     label: 'Voiture',     color: '#8B7355' },
+  { id: 'essence',     label: 'Essence',     color: '#C17F3C' },
+  { id: 'appart',      label: 'Appart',      color: '#8A6F4E' },
+  { id: 'abonnements', label: 'Abonnements', color: '#7A8FA6' },
+  { id: 'loisirs',     label: 'Loisirs',     color: '#A67B8A' },
+  { id: 'sante',       label: 'Santé',       color: '#C4856A' },
+  { id: 'revenus',     label: 'Revenus',     color: '#5B8E7D' },
+  { id: 'autre',       label: 'Autre',       color: '#9A9888' },
+];
+
+const CATEGORY_KEYWORDS = {
+  courses:     ['carrefour','leclerc','auchan','lidl','intermarché','intermarch','monoprix','casino','franprix','picard','biocbon','bio c bon','naturalia','grand frais','supermarché','supermarche','superette','épicerie','epicerie'],
+  essence:     ['total ','total energie','bp ','shell','esso','station service','station-service','station','vinci autoroute','autoroute'],
+  appart:      ['loyer','edf','engie','eau ','sfr ','orange ','free ','bouygues','assurance habitation','foncia','nexity','agence immo'],
+  voiture:     ['assurance auto','maif','macif','axa','gmf','matmut','carte grise','contrôle technique','controle technique','péage','peage','parking','garage','volkswagen','renault','peugeot'],
+  abonnements: ['netflix','spotify','amazon prime','disney','apple ','apple.com','youtube premium','deezer','canal+','free mobile','sfr mobile','bouygues mobile','orange mobile','microsoft','xbox game pass'],
+  loisirs:     ['restaurant','brasserie','bistrot','burger','mcdo','mcdonald','kfc','pizza','sushi','bar ','café ','cafe ','cinema','théâtre','theatre','concert','fnac','steam','playstation','amazon','cdiscount','zara','h&m','uniqlo','sport'],
+  sante:       ['pharmacie','médecin','medecin','docteur','dentiste','ophtalmo','kiné','kine','hopital','hôpital','clinique','cpam','mutuelle','secu'],
+  revenus:     ['salaire','virement reçu','virement recu','remboursement','allocation','prime','aides','caf ','pole emploi'],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mode de stockage
+// Quand l'app tourne en local (file:// ou localhost) → localStorage
+// Quand elle est déployée sur Vercel → API /api/expenses
+// ─────────────────────────────────────────────────────────────────────────────
+
+const IS_DEPLOYED = (
+  window.location.protocol !== 'file:' &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1'
+);
+
+const DB = {
+  async load() {
+    if (!IS_DEPLOYED) {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    }
+    const res = await fetch('/api/expenses');
+    if (!res.ok) throw new Error('Impossible de charger les données');
+    return res.json();
+  },
+
+  async add(expense) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
+      return;
+    }
+    const res = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(expense),
+    });
+    if (!res.ok) throw new Error('Enregistrement échoué');
+  },
+
+  async addMany(expenses) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
+      return;
+    }
+    const res = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(expenses),
+    });
+    if (!res.ok) throw new Error('Import échoué');
+  },
+
+  async remove(id) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
+      return;
+    }
+    const res = await fetch(`/api/expenses?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Suppression échouée');
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fmtEUR(n) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
+}
+
+function fmtCompact(n) {
+  if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace('.', ',') + 'k€';
+  return Math.round(n) + '€';
+}
+
+function parseAmount(str) {
+  if (typeof str === 'number') return Math.abs(str);
+  const clean = String(str).replace(/\s/g, '').replace(',', '.').replace('€', '').replace('+', '');
+  return Math.abs(parseFloat(clean)) || 0;
+}
+
+function parseDate(str) {
+  if (!str) return null;
+  str = String(str).trim();
+  if (/^\d{4}[-/.]\d{2}[-/.]\d{2}$/.test(str)) {
+    return str.slice(0, 10).replace(/[/.]/g, '-');
+  }
+  const m = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return null;
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function guessCategory(label) {
+  const lower = label.toLowerCase();
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some(kw => lower.includes(kw))) return cat;
+  }
+  return 'autre';
+}
+
+function getCat(id) {
+  return CATEGORIES.find(c => c.id === id) ?? CATEGORIES[CATEGORIES.length - 1];
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Import CSV
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectAndParseCSV(text) {
+  text = text.replace(/^﻿/, '');
+  const sep = (text.match(/;/g) || []).length > (text.match(/,/g) || []).length ? ';' : ',';
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  function splitLine(line) {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; continue; }
+      if (line[i] === sep && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else cur += line[i];
+    }
+    cols.push(cur.trim());
+    return cols;
+  }
+
+  const headers = splitLine(lines[0]).map(h =>
+    h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  );
+
+  let dateCol = -1, labelCol = -1, amountCol = -1, debitCol = -1, creditCol = -1;
+  for (let i = 0; i < headers.length; i++) {
+    const h = headers[i];
+    if (h.includes('date'))                                                          dateCol   = i;
+    if (h.includes('libelle') || h.includes('description') || h.includes('intitule') || h.includes('motif')) labelCol  = i;
+    if (h.includes('montant') || h === 'amount')                                     amountCol = i;
+    if (h.includes('debit'))                                                         debitCol  = i;
+    if (h.includes('credit'))                                                        creditCol = i;
+  }
+
+  if (dateCol === -1) return [];
+
+  const results = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = splitLine(lines[i]);
+    const date = parseDate(cols[dateCol]);
+    if (!date) continue;
+
+    const label = (labelCol >= 0 && cols[labelCol]) ? cols[labelCol] : 'Opération';
+    let amount = 0, type = 'depense';
+
+    if (amountCol >= 0) {
+      const rawStr = cols[amountCol] || '';
+      const isNeg  = rawStr.trim().startsWith('-');
+      amount = parseAmount(rawStr);
+      type   = isNeg ? 'depense' : 'revenu';
+    } else if (debitCol >= 0 || creditCol >= 0) {
+      const debit  = debitCol  >= 0 ? parseAmount(cols[debitCol]  || '') : 0;
+      const credit = creditCol >= 0 ? parseAmount(cols[creditCol] || '') : 0;
+      if (debit  > 0) { amount = debit;  type = 'depense'; }
+      else if (credit > 0) { amount = credit; type = 'revenu'; }
+    }
+
+    if (!amount) continue;
+
+    results.push({
+      id: generateId(),
+      date,
+      label,
+      amount,
+      type,
+      category: type === 'revenu' ? 'revenus' : guessCategory(label),
+    });
+  }
+
+  return results;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// État global
+// ─────────────────────────────────────────────────────────────────────────────
+
+const today = new Date();
+
+const state = {
+  expenses:     [],
+  view:         'calendar',
+  currentYear:  today.getFullYear(),
+  currentMonth: today.getMonth(),
+  selectedDate: null,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agrégations
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getMonthData(year, month) {
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+  return state.expenses.filter(e => e.date.startsWith(prefix));
+}
+
+function getDayData(dateStr) {
+  return state.expenses.filter(e => e.date === dateStr);
+}
+
+function sumByType(list) {
+  let depenses = 0, revenus = 0;
+  for (const e of list) {
+    if (e.type === 'depense') depenses += e.amount;
+    else revenus += e.amount;
+  }
+  return { depenses, revenus };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rendu : Calendrier
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderCalendar() {
+  const { currentYear, currentMonth, selectedDate } = state;
+  const now = todayStr();
+
+  document.getElementById('select-month').value = currentMonth;
+  document.getElementById('select-year').value  = currentYear;
+  document.getElementById('month-title').textContent = `${MONTHS[currentMonth]} ${currentYear}`;
+
+  const monthData = getMonthData(currentYear, currentMonth);
+  const dayMap = {};
+  for (const e of monthData) {
+    if (!dayMap[e.date]) dayMap[e.date] = { depenses: 0, revenus: 0, count: 0 };
+    if (e.type === 'depense') dayMap[e.date].depenses += e.amount;
+    else                      dayMap[e.date].revenus  += e.amount;
+    dayMap[e.date].count++;
+  }
+
+  const maxDep = Math.max(1, ...Object.values(dayMap).map(d => d.depenses));
+  const firstDow   = new Date(currentYear, currentMonth, 1).getDay();
+  const startOffset = firstDow === 0 ? 6 : firstDow - 1;
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const prevMonthDays = new Date(currentYear, currentMonth, 0).getDate();
+
+  const grid = document.getElementById('calendar-grid');
+  grid.innerHTML = '';
+
+  for (const d of DAYS_SHORT) {
+    const el = document.createElement('div');
+    el.className = 'cal-header';
+    el.textContent = d;
+    grid.appendChild(el);
+  }
+
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const el = document.createElement('div');
+    el.className = 'cal-day other-month';
+    el.innerHTML = `<span class="day-num">${prevMonthDays - i}</span>`;
+    grid.appendChild(el);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const data    = dayMap[dateStr];
+    const isToday = dateStr === now;
+    const isSel   = dateStr === selectedDate;
+
+    const el = document.createElement('div');
+    el.className = ['cal-day', isToday && 'today', isSel && 'selected'].filter(Boolean).join(' ');
+    el.dataset.date = dateStr;
+    el.setAttribute('role', 'gridcell');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', dateStr);
+
+    if (data?.depenses > 0) el.style.setProperty('--intensity', data.depenses / maxDep);
+
+    let html = `<span class="day-num">${day}</span>`;
+    if (data) {
+      if (data.depenses > 0) html += `<span class="day-amount depense">-${fmtCompact(data.depenses)}</span>`;
+      if (data.revenus  > 0) html += `<span class="day-amount revenu">+${fmtCompact(data.revenus)}</span>`;
+      if (data.count    > 1) html += `<span class="day-count">${data.count} op.</span>`;
+    }
+
+    el.innerHTML = html;
+    el.addEventListener('click', () => selectDay(dateStr));
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDay(dateStr); } });
+    grid.appendChild(el);
+  }
+
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const trailing   = totalCells - startOffset - daysInMonth;
+  for (let i = 1; i <= trailing; i++) {
+    const el = document.createElement('div');
+    el.className = 'cal-day other-month';
+    el.innerHTML = `<span class="day-num">${i}</span>`;
+    grid.appendChild(el);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rendu : Panneau latéral
+// ─────────────────────────────────────────────────────────────────────────────
+
+function selectDay(dateStr) {
+  state.selectedDate = dateStr;
+  renderCalendar();
+  renderDayPanel();
+}
+
+function renderDayPanel() {
+  const panel = document.getElementById('day-panel');
+  const dateStr = state.selectedDate;
+
+  if (!dateStr) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const label = new Date(year, month - 1, day)
+    .toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const items = getDayData(dateStr);
+  const { depenses, revenus } = sumByType(items);
+
+  let html = `
+    <div class="panel-header">
+      <h2 class="panel-date">${label}</h2>
+      <button class="btn-icon" id="close-panel" aria-label="Fermer">&#10005;</button>
+    </div>
+    <div class="panel-summary">
+      ${depenses > 0 ? `<span class="summary-depense">Dépenses : ${fmtEUR(depenses)}</span>` : ''}
+      ${revenus  > 0 ? `<span class="summary-revenu">Revenus : ${fmtEUR(revenus)}</span>`    : ''}
+      ${items.length === 0 ? '<span class="summary-empty">Aucune opération enregistrée.</span>' : ''}
+    </div>
+    <ul class="operations-list">
+  `;
+
+  for (const item of items) {
+    const cat = getCat(item.category);
+    html += `
+      <li class="operation-item">
+        <span class="op-dot" style="background:${cat.color}"></span>
+        <span class="op-label" title="${item.label}">${item.label}</span>
+        <span class="op-cat">${cat.label}</span>
+        <span class="op-amount ${item.type}">${item.type === 'depense' ? '-' : '+'}${fmtEUR(item.amount)}</span>
+        <button class="op-delete" data-id="${item.id}" aria-label="Supprimer ${item.label}">&#10005;</button>
+      </li>
+    `;
+  }
+
+  html += `</ul>
+    <button class="btn-add-op" id="btn-add-operation">+ Ajouter une opération</button>
+  `;
+
+  panel.innerHTML = html;
+
+  document.getElementById('close-panel').addEventListener('click', closePanel);
+  document.getElementById('btn-add-operation').addEventListener('click', () => openAddModal(dateStr));
+
+  panel.querySelectorAll('.op-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const snapshot = [...state.expenses];
+
+      // Mise à jour optimiste
+      state.expenses = state.expenses.filter(e => e.id !== id);
+      renderCalendar();
+      renderDayPanel();
+
+      try {
+        await DB.remove(id);
+      } catch {
+        state.expenses = snapshot;
+        renderCalendar();
+        renderDayPanel();
+        showToast('Erreur lors de la suppression');
+      }
+    });
+  });
+}
+
+function closePanel() {
+  state.selectedDate = null;
+  document.getElementById('day-panel').classList.add('hidden');
+  renderCalendar();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rendu : Statistiques
+// ─────────────────────────────────────────────────────────────────────────────
+
+let barChart   = null;
+let donutChart = null;
+
+function renderStats() {
+  const { currentYear, currentMonth } = state;
+
+  document.getElementById('stats-month-title').textContent = `${MONTHS[currentMonth]} ${currentYear}`;
+  document.getElementById('kpi-year-label').textContent   = currentYear;
+
+  const monthData = getMonthData(currentYear, currentMonth);
+  const { depenses: mDep, revenus: mRev } = sumByType(monthData);
+  const mSolde = mRev - mDep;
+
+  document.getElementById('kpi-depenses').textContent = fmtEUR(mDep);
+  document.getElementById('kpi-revenus').textContent  = fmtEUR(mRev);
+  document.getElementById('kpi-solde').textContent    = fmtEUR(mSolde);
+  document.getElementById('kpi-solde').className      = 'kpi-value ' + (mSolde >= 0 ? 'positive' : 'negative');
+
+  const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const prevYear  = currentMonth === 0 ? currentYear - 1 : currentYear;
+  const { depenses: pDep } = sumByType(getMonthData(prevYear, prevMonth));
+  const diffEl = document.getElementById('kpi-diff');
+  if (pDep > 0) {
+    const pct = ((mDep - pDep) / pDep) * 100;
+    diffEl.textContent = (pct > 0 ? '+' : '') + pct.toFixed(1) + '% vs mois préc.';
+    diffEl.className   = 'kpi-diff ' + (pct > 0 ? 'negative' : 'positive');
+  } else {
+    diffEl.textContent = '';
+  }
+
+  let yDep = 0, yRev = 0;
+  for (let m = 0; m < 12; m++) {
+    const { depenses, revenus } = sumByType(getMonthData(currentYear, m));
+    yDep += depenses;
+    yRev += revenus;
+  }
+  document.getElementById('kpi-year-dep').textContent   = fmtEUR(yDep);
+  document.getElementById('kpi-year-rev').textContent   = fmtEUR(yRev);
+  document.getElementById('kpi-year-solde').textContent = fmtEUR(yRev - yDep);
+  document.getElementById('kpi-year-solde').className   = 'kpi-value ' + ((yRev - yDep) >= 0 ? 'positive' : 'negative');
+
+  const barDep = [], barRev = [];
+  for (let m = 0; m < 12; m++) {
+    const { depenses, revenus } = sumByType(getMonthData(currentYear, m));
+    barDep.push(depenses);
+    barRev.push(revenus);
+  }
+
+  const barCtx = document.getElementById('bar-chart').getContext('2d');
+  if (barChart) barChart.destroy();
+  barChart = new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: MONTHS_SHORT,
+      datasets: [
+        { label: 'Dépenses', data: barDep, backgroundColor: '#B85C38', borderRadius: 4 },
+        { label: 'Revenus',  data: barRev, backgroundColor: '#4A7C59', borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top', labels: { font: { family: 'Inter', size: 12 }, color: '#7A6A52' } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label} : ${fmtEUR(ctx.raw)}` } },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => fmtCompact(v), font: { family: 'JetBrains Mono', size: 11 }, color: '#A8977E' },
+          grid: { color: '#E4DECE' },
+        },
+        x: {
+          ticks: { font: { family: 'Inter', size: 12 }, color: '#7A6A52' },
+          grid: { display: false },
+        },
+      },
+    },
+  });
+
+  const catTotals = {};
+  for (const e of monthData) {
+    if (e.type === 'depense') catTotals[e.category] = (catTotals[e.category] || 0) + e.amount;
+  }
+
+  const catEntries = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
+  const total = catEntries.reduce((s, [, v]) => s + v, 0);
+
+  const donutCanvas = document.getElementById('donut-chart');
+  const catListEl   = document.getElementById('cat-list');
+  const catEmpty    = document.getElementById('cat-empty');
+
+  if (!catEntries.length) {
+    donutCanvas.classList.add('hidden');
+    catListEl.classList.add('hidden');
+    catEmpty.classList.remove('hidden');
+  } else {
+    donutCanvas.classList.remove('hidden');
+    catListEl.classList.remove('hidden');
+    catEmpty.classList.add('hidden');
+
+    const donutCtx = donutCanvas.getContext('2d');
+    if (donutChart) donutChart.destroy();
+    donutChart = new Chart(donutCtx, {
+      type: 'doughnut',
+      data: {
+        labels: catEntries.map(([id]) => getCat(id).label),
+        datasets: [{
+          data:            catEntries.map(([, v]) => v),
+          backgroundColor: catEntries.map(([id]) => getCat(id).color),
+          borderWidth: 2,
+          borderColor: '#FAF7F1',
+        }],
+      },
+      options: {
+        responsive: true,
+        cutout: '66%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${ctx.label} : ${fmtEUR(ctx.raw)} (${((ctx.raw / total) * 100).toFixed(1)}%)` } },
+        },
+      },
+    });
+
+    catListEl.innerHTML = catEntries.map(([id, amount]) => {
+      const cat = getCat(id);
+      const pct = (amount / total * 100).toFixed(1);
+      return `
+        <li class="cat-item">
+          <span class="cat-dot" style="background:${cat.color}"></span>
+          <span class="cat-name">${cat.label}</span>
+          <div class="cat-right">
+            <span class="cat-amount">${fmtEUR(amount)}</span>
+            <span class="cat-pct">${pct}%</span>
+          </div>
+        </li>
+      `;
+    }).join('');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modal : Ajouter une opération
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openAddModal(dateStr) {
+  document.getElementById('add-date').value     = dateStr;
+  document.getElementById('add-label').value    = '';
+  document.getElementById('add-amount').value   = '';
+  document.getElementById('add-type').value     = 'depense';
+  document.getElementById('add-category').value = 'autre';
+  document.getElementById('modal-add').classList.remove('hidden');
+  document.getElementById('add-label').focus();
+}
+
+function closeAddModal() {
+  document.getElementById('modal-add').classList.add('hidden');
+}
+
+async function saveNewExpense() {
+  const date     = document.getElementById('add-date').value;
+  const label    = document.getElementById('add-label').value.trim();
+  const amount   = parseAmount(document.getElementById('add-amount').value);
+  const type     = document.getElementById('add-type').value;
+  const category = document.getElementById('add-category').value;
+
+  if (!label || !amount || !date) {
+    document.getElementById(label ? 'add-amount' : 'add-label').focus();
+    return;
+  }
+
+  const expense = { id: generateId(), date, label, amount, type, category };
+
+  // Mise à jour optimiste
+  state.expenses.push(expense);
+  closeAddModal();
+  renderCalendar();
+  renderDayPanel();
+
+  try {
+    await DB.add(expense);
+  } catch {
+    state.expenses = state.expenses.filter(e => e.id !== expense.id);
+    renderCalendar();
+    renderDayPanel();
+    showToast('Erreur lors de l\'enregistrement');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modal : Import CSV
+// ─────────────────────────────────────────────────────────────────────────────
+
+let pendingImport = null;
+
+function openImportModal() {
+  pendingImport = null;
+  document.getElementById('import-file').value        = '';
+  document.getElementById('import-preview').innerHTML = '';
+  document.getElementById('btn-confirm-import').disabled = true;
+  document.getElementById('modal-import').classList.remove('hidden');
+}
+
+function closeImportModal() {
+  document.getElementById('modal-import').classList.add('hidden');
+  pendingImport = null;
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = ev => {
+    pendingImport = detectAndParseCSV(ev.target.result);
+    const preview = document.getElementById('import-preview');
+
+    if (!pendingImport.length) {
+      preview.innerHTML = '<p class="import-error">Aucune opération détectée. Vérifiez le format (en-tête requis : Date, Libellé, Montant ou Débit/Crédit).</p>';
+      document.getElementById('btn-confirm-import').disabled = true;
+      return;
+    }
+
+    const shown = pendingImport.slice(0, 8);
+    preview.innerHTML = `
+      <p class="import-info">${pendingImport.length} opération(s) détectée(s)</p>
+      <ul class="import-list">
+        ${shown.map(e => `
+          <li>
+            <span class="import-date">${e.date}</span>
+            <span class="import-label" title="${e.label}">${e.label}</span>
+            <span class="import-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
+          </li>
+        `).join('')}
+        ${pendingImport.length > 8 ? `<li class="import-more">… et ${pendingImport.length - 8} opération(s) de plus</li>` : ''}
+      </ul>
+    `;
+    document.getElementById('btn-confirm-import').disabled = false;
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+async function confirmImport() {
+  if (!pendingImport?.length) return;
+
+  const existing = new Set(state.expenses.map(e => `${e.date}|${e.label}|${e.amount}`));
+  const newOps   = pendingImport.filter(e => !existing.has(`${e.date}|${e.label}|${e.amount}`));
+  const ignored  = pendingImport.length - newOps.length;
+
+  if (!newOps.length) {
+    showToast(`Aucun nouvel élément (${ignored} doublon(s) détecté(s))`);
+    closeImportModal();
+    return;
+  }
+
+  // Mise à jour optimiste
+  state.expenses.push(...newOps);
+  closeImportModal();
+  renderCalendar();
+  showToast(`${newOps.length} opération(s) importée(s)${ignored > 0 ? ` · ${ignored} doublon(s) ignoré(s)` : ''}`);
+
+  try {
+    await DB.addMany(newOps);
+  } catch {
+    const newIds = new Set(newOps.map(e => e.id));
+    state.expenses = state.expenses.filter(e => !newIds.has(e.id));
+    renderCalendar();
+    showToast('Erreur lors de l\'import — données non sauvegardées');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Toast
+// ─────────────────────────────────────────────────────────────────────────────
+
+let toastTimer = null;
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), 4000);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vues
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setView(view) {
+  state.view = view;
+  const isCal = view === 'calendar';
+  document.getElementById('view-calendar').classList.toggle('hidden', !isCal);
+  document.getElementById('view-stats').classList.toggle('hidden', isCal);
+  document.getElementById('btn-view-calendar').classList.toggle('active', isCal);
+  document.getElementById('btn-view-stats').classList.toggle('active', !isCal);
+  document.getElementById('btn-view-calendar').setAttribute('aria-selected', isCal);
+  document.getElementById('btn-view-stats').setAttribute('aria-selected', !isCal);
+  if (!isCal) renderStats();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Navigation mois
+// ─────────────────────────────────────────────────────────────────────────────
+
+function prevMonth() {
+  if (state.currentMonth === 0) { state.currentMonth = 11; state.currentYear--; }
+  else state.currentMonth--;
+  closePanel();
+}
+
+function nextMonth() {
+  if (state.currentMonth === 11) { state.currentMonth = 0; state.currentYear++; }
+  else state.currentMonth++;
+  closePanel();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Initialisation
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function init() {
+  // Sélecteur mois
+  const selMonth = document.getElementById('select-month');
+  MONTHS.forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i; opt.textContent = m;
+    selMonth.appendChild(opt);
+  });
+
+  // Sélecteur année
+  const selYear = document.getElementById('select-year');
+  const thisYear = new Date().getFullYear();
+  for (let y = thisYear - 4; y <= thisYear + 2; y++) {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    selYear.appendChild(opt);
+  }
+
+  // Catégories
+  const catSel = document.getElementById('add-category');
+  CATEGORIES.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat.id; opt.textContent = cat.label;
+    catSel.appendChild(opt);
+  });
+
+  // Navigation
+  document.getElementById('prev-month').addEventListener('click', prevMonth);
+  document.getElementById('next-month').addEventListener('click', nextMonth);
+  document.getElementById('select-month').addEventListener('change', e => {
+    state.currentMonth = parseInt(e.target.value);
+    closePanel();
+  });
+  document.getElementById('select-year').addEventListener('change', e => {
+    state.currentYear = parseInt(e.target.value);
+    closePanel();
+  });
+
+  // Raccourcis clavier
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'ArrowLeft')  prevMonth();
+    if (e.key === 'ArrowRight') nextMonth();
+    if (e.key === 'Escape') { closePanel(); closeAddModal(); closeImportModal(); }
+  });
+
+  // Onglets
+  document.getElementById('btn-view-calendar').addEventListener('click', () => setView('calendar'));
+  document.getElementById('btn-view-stats').addEventListener('click',    () => setView('stats'));
+
+  // Import
+  document.getElementById('btn-import').addEventListener('click', openImportModal);
+  document.getElementById('modal-import-close').addEventListener('click', closeImportModal);
+  document.getElementById('btn-cancel-import').addEventListener('click', closeImportModal);
+  document.getElementById('btn-confirm-import').addEventListener('click', confirmImport);
+  document.getElementById('import-file').addEventListener('change', handleFileSelect);
+  document.getElementById('modal-import').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal-import')) closeImportModal();
+  });
+
+  // Modal ajout
+  document.getElementById('modal-add-close').addEventListener('click', closeAddModal);
+  document.getElementById('btn-cancel-add').addEventListener('click', closeAddModal);
+  document.getElementById('btn-save-add').addEventListener('click', saveNewExpense);
+  document.getElementById('modal-add').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal-add')) closeAddModal();
+  });
+  document.getElementById('add-amount').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveNewExpense();
+  });
+  document.getElementById('add-label').addEventListener('blur', () => {
+    const label = document.getElementById('add-label').value;
+    const type  = document.getElementById('add-type').value;
+    if (label && type === 'depense') {
+      document.getElementById('add-category').value = guessCategory(label);
+    }
+  });
+  document.getElementById('add-type').addEventListener('change', e => {
+    document.getElementById('add-category').value = e.target.value === 'revenu' ? 'revenus' : 'autre';
+  });
+
+  // Charger les données (DB ou localStorage)
+  const overlay = document.getElementById('loading-overlay');
+  overlay.classList.remove('hidden');
+  try {
+    state.expenses = await DB.load();
+  } catch {
+    showToast('Erreur de connexion — mode hors ligne activé');
+    state.expenses = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  } finally {
+    overlay.classList.add('hidden');
+  }
+
+  renderCalendar();
+}
+
+document.addEventListener('DOMContentLoaded', init);

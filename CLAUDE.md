@@ -2,7 +2,7 @@
 
 ## Contexte projet
 
-Application web personnelle de suivi de dépenses au format calendrier mensuel/annuel. Outil destiné à un usage personnel (utilisateur unique, pas de multi-compte). Stack actuelle : composant React mono-fichier (artifact Claude.ai), à faire évoluer vers une vraie application web autonome.
+Application web personnelle de suivi de dépenses au format calendrier mensuel/annuel. Outil destiné à un usage personnel (utilisateur unique, pas de multi-compte). Déployée sur Vercel, repo GitHub : github.com/lucasbleau/Calendrier-depense.
 
 ## Objectif fonctionnel
 
@@ -52,7 +52,8 @@ Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Santé, Revenus, Autre.
 
 - **Vanilla HTML/CSS/JS** — aucun build step, fonctionne en ouvrant `index.html` directement
 - Chart.js 4.4 via CDN (graphiques bar + donut)
-- `localStorage` pour la persistance (clé : `expense-calendar-data-v1`)
+- `localStorage` pour la persistance en local (`file://` ou `localhost`)
+- `pg` ^8.13.0 (driver PostgreSQL standard) pour la persistance en production via Vercel Serverless
 - Polices : Fraunces (display) + JetBrains Mono (chiffres) + Inter (body) via Google Fonts
 
 ### Fichiers
@@ -91,15 +92,18 @@ Toutes les données sont stockées sous forme de tableau `Expense[]` sérialisé
 - Parsing des nombres tolérant : virgule ou point décimal, symbole € optionnel, via `parseAmount()`
 - Parsing des dates tolérant : `DD/MM/YYYY`, `YYYY-MM-DD`, séparateurs `/`, `-`, `.` via `parseDate()`
 
-### Persistance actuelle — localStorage
+### Persistance
 
-Les données sont un tableau `Expense[]` sérialisé en JSON dans `localStorage` (clé `expense-calendar-data-v1`).
+Deux modes selon le contexte d'exécution (détectés automatiquement dans `app.js`) :
 
-**Conséquences pour le déploiement :**
-- Les données sont **locales au navigateur** de la machine — pas de sync multi-device.
-- Si l'app est déployée sur un hébergeur statique (Vercel, Netlify, GitHub Pages), chaque utilisateur/navigateur a ses propres données.
-- Vider le cache ou changer de navigateur = données perdues.
-- **Pour synchro multi-device :** voir roadmap — migration vers Supabase (Postgres hébergé) ou SQLite + API REST.
+- **Local (`file://` ou `localhost`)** : `localStorage` (clé `expense-calendar-data-v1`) — aucune dépendance réseau
+- **Déployé sur Vercel** : appels `fetch` vers `/api/expenses` → base Postgres via `pg`
+
+La base est une **Prisma Postgres** accessible via `POSTGRES_URL` (format `postgresql://...@*.db.prisma.io:5432/postgres?sslmode=require`). La serverless function `api/expenses.js` utilise un `Pool` pg avec `ssl: { rejectUnauthorized: false }`.
+
+**Conséquences :**
+- En production, les données sont persistantes et accessibles depuis n'importe quel navigateur/device.
+- La table doit exister avant le premier usage (cf. `schema.sql`).
 
 ## Déploiement
 
@@ -119,11 +123,11 @@ Browser → /api/expenses (Vercel Serverless Function) → Vercel Postgres (Neon
 ├── index.html
 ├── style.css
 ├── app.js
-├── package.json          ← dépendance @vercel/postgres
-├── schema.sql            ← migration à exécuter une fois dans Vercel Postgres
+├── package.json          ← dépendance pg + engines.node 20.x
+├── schema.sql            ← migration à exécuter une fois dans la base Postgres
 ├── .gitignore
 └── api/
-    └── expenses.js       ← serverless function (GET / POST / DELETE)
+    └── expenses.js       ← serverless function (GET / POST / DELETE) via pg
 ```
 
 ### Procédure de déploiement (à faire une fois)
@@ -142,14 +146,16 @@ git push -u origin main
 - Framework : laisser sur "Other"
 - Cliquer Deploy (le premier déploiement sera sans base, c'est normal)
 
-**3. Ajouter Vercel Postgres**
-- Dans le dashboard Vercel du projet → onglet "Storage" → "Create Database" → "Postgres"
-- Nommer la base `calendrier-budget` → Create
-- Vercel injecte automatiquement `POSTGRES_URL` dans les env vars de la fonction
+**3. Ajouter une base Postgres**
+- Option A (recommandée) : Vercel Dashboard → Storage → Create Database → Postgres (Neon) → nommer `calendrier-budget`
+- Option B : Prisma Postgres ou autre Postgres hébergé — coller l'URL dans les env vars Vercel
+- L'env var attendue : `POSTGRES_URL` (format `postgresql://user:pass@host:5432/db?sslmode=require`)
 
 **4. Créer la table**
-- Dans Vercel → Storage → la base → onglet "Query"
+- Dans Vercel → Storage → la base → onglet "Query" (ou via psql/DBeaver)
 - Copier-coller le contenu de `schema.sql` et exécuter
+
+> **Note :** le repo GitHub doit être **public** ou le plan Vercel doit être **Pro** pour que le déploiement continu fonctionne sur un compte Équipe Vercel Hobby.
 
 **5. Redéployer**
 ```bash

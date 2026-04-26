@@ -988,11 +988,11 @@ body {
    Vue Récurrences
    ───────────────────────────────────────────────────────────────────────────── */
 
-#view-recurring {
+#view-budget {
   padding: 1.5rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-  max-width: 780px;
+  max-width: 900px;
   margin: 0 auto;
 }
 
@@ -1156,7 +1156,7 @@ body {
 }
 
 @media (max-width: 700px) {
-  #view-recurring { padding: 1rem; }
+  #view-budget { padding: 1rem; }
   .recurring-header { flex-direction: column; }
   .recurring-card { grid-template-columns: 1.5rem 1fr auto auto; }
   .recurring-card .btn-edit-recur { display: none; }
@@ -1186,11 +1186,7 @@ body {
    ───────────────────────────────────────────────────────────────────────────── */
 
 #view-goals {
-  padding: 1.5rem;
-  overflow-y: auto;
-  height: calc(100vh - var(--header-h));
-  max-width: 820px;
-  margin: 0 auto;
+  /* contenu rendu dans #view-budget */
 }
 
 .goals-header { margin-bottom: 1.5rem; }
@@ -1331,11 +1327,14 @@ body {
 }
 .btn-goal-cancel:hover { border-color: var(--depense); color: var(--depense); }
 
-.goals-total-hint {
-  font-size: 12px;
-  color: var(--text-3);
-  text-align: right;
-  margin-bottom: 1.25rem;
+.budget-section-divider {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-2);
+  border-top: 1px solid var(--border-light);
+  margin: 2rem 0 1.25rem;
+  padding-top: 1.25rem;
 }
 
 /* Tableau annuel */
@@ -1433,7 +1432,7 @@ body {
 .goal-bar.over { background: var(--depense); }
 
 @media (max-width: 700px) {
-  #view-goals { padding: 1rem; }
+  #goals-body { padding: 0; }
   .goals-settings { gap: 0.4rem; }
   .goal-setting-card { min-width: 140px; padding: 0.55rem 0.65rem; }
 }

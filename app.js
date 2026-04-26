@@ -1088,7 +1088,7 @@ function renderGoals() {
     }
   }
   html += `</div>`;
-  html += `<p class="goals-total-hint">Plafonds calculés d'après les jours par ville — ${currentYear}</p>`;
+  html += `<div class="budget-section-divider">Objectifs — ${currentYear}</div>`;
 
   // Tableau annuel
   html += `
@@ -1209,26 +1209,27 @@ async function deleteGoal(category) {
 // Vues
 // ─────────────────────────────────────────────────────────────────────────────
 
+function renderBudget() {
+  renderRecurring();
+  renderGoals();
+}
+
 function setView(view) {
   state.view = view;
   document.getElementById('view-calendar').classList.toggle('hidden', view !== 'calendar');
   document.getElementById('view-stats').classList.toggle('hidden', view !== 'stats');
-  document.getElementById('view-recurring').classList.toggle('hidden', view !== 'recurring');
-  document.getElementById('view-goals').classList.toggle('hidden', view !== 'goals');
+  document.getElementById('view-budget').classList.toggle('hidden', view !== 'budget');
 
   document.getElementById('btn-view-calendar').classList.toggle('active', view === 'calendar');
   document.getElementById('btn-view-stats').classList.toggle('active', view === 'stats');
-  document.getElementById('btn-view-recurring').classList.toggle('active', view === 'recurring');
-  document.getElementById('btn-view-goals').classList.toggle('active', view === 'goals');
+  document.getElementById('btn-view-budget').classList.toggle('active', view === 'budget');
 
   document.getElementById('btn-view-calendar').setAttribute('aria-selected', view === 'calendar');
   document.getElementById('btn-view-stats').setAttribute('aria-selected', view === 'stats');
-  document.getElementById('btn-view-recurring').setAttribute('aria-selected', view === 'recurring');
-  document.getElementById('btn-view-goals').setAttribute('aria-selected', view === 'goals');
+  document.getElementById('btn-view-budget').setAttribute('aria-selected', view === 'budget');
 
   if (view === 'stats') renderStats();
-  if (view === 'recurring') renderRecurring();
-  if (view === 'goals') renderGoals();
+  if (view === 'budget') renderBudget();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1306,10 +1307,9 @@ async function init() {
   });
 
   // Onglets
-  document.getElementById('btn-view-calendar').addEventListener('click',  () => setView('calendar'));
-  document.getElementById('btn-view-stats').addEventListener('click',     () => setView('stats'));
-  document.getElementById('btn-view-recurring').addEventListener('click', () => setView('recurring'));
-  document.getElementById('btn-view-goals').addEventListener('click',     () => setView('goals'));
+  document.getElementById('btn-view-calendar').addEventListener('click', () => setView('calendar'));
+  document.getElementById('btn-view-stats').addEventListener('click',    () => setView('stats'));
+  document.getElementById('btn-view-budget').addEventListener('click',   () => setView('budget'));
 
   // Import
   document.getElementById('btn-import').addEventListener('click', openImportModal);

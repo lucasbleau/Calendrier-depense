@@ -139,7 +139,7 @@ function fmtEUR(n) {
 
 function fmtCompact(n) {
   if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace('.', ',') + 'k€';
-  return Math.round(n) + '€';
+  return n.toFixed(2).replace('.', ',') + '€';
 }
 
 function parseAmount(str) {
@@ -373,7 +373,10 @@ function renderCalendar() {
       if (data.count    > 1) html += `<span class="day-count">${data.count} op.</span>`;
     }
     if (recurItems.length > 0) {
-      html += `<span class="day-recurring" title="${recurItems.map(r => r.label).join(', ')}">↺</span>`;
+      const rDep = recurItems.filter(r => r.type === 'depense').reduce((s, r) => s + r.amount, 0);
+      const rRev = recurItems.filter(r => r.type === 'revenu').reduce((s, r) => s + r.amount, 0);
+      if (rDep > 0) html += `<span class="day-amount day-recur depense" title="${recurItems.filter(r=>r.type==='depense').map(r=>r.label).join(', ')}">↺ ${fmtCompact(rDep)}</span>`;
+      if (rRev > 0) html += `<span class="day-amount day-recur revenu" title="${recurItems.filter(r=>r.type==='revenu').map(r=>r.label).join(', ')}">↺ +${fmtCompact(rRev)}</span>`;
     }
 
     el.innerHTML = html;

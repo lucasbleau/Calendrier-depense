@@ -929,17 +929,12 @@ body {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Indicateur récurrence dans la cellule calendrier
+   Montants récurrents dans la cellule calendrier
    ───────────────────────────────────────────────────────────────────────────── */
 
-.day-recurring {
-  font-size: 10px;
-  color: var(--accent);
-  opacity: 0.75;
-  margin-top: auto;
-  align-self: flex-start;
-  position: relative;
-  line-height: 1;
+.day-amount.day-recur {
+  opacity: 0.5;
+  font-style: italic;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

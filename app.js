@@ -21,6 +21,7 @@ const CATEGORIES = [
   { id: 'abonnements',   label: 'Abonnements',   color: '#7A8FA6' },
   { id: 'loisirs',       label: 'Loisirs',       color: '#A67B8A' },
   { id: 'dijon_loisirs', label: 'Dijon Loisirs', color: '#C4856A' },
+  { id: 'dijon_appart',  label: 'Dijon Appart',  color: '#A0917A' },
   { id: 'besac_loisirs', label: 'Besac Loisirs', color: '#8B7BA8' },
   { id: 'epargne',       label: 'Épargne',       color: '#5B8E7D' },
   { id: 'revenus',       label: 'Revenus',       color: '#4A7C59' },
@@ -28,7 +29,7 @@ const CATEGORIES = [
 ];
 
 // Catégories suivies dans la vue Objectifs
-const GOAL_CATEGORIES = ['courses', 'essence', 'dijon_loisirs', 'besac_loisirs'];
+const GOAL_CATEGORIES = ['courses', 'essence', 'dijon_loisirs', 'dijon_appart', 'besac_loisirs'];
 
 // Jours par mois passés à Besançon et Dijon [besac, dijon] — indice 0 = janvier
 const CITY_DAYS = {
@@ -52,7 +53,8 @@ const CITY_DAYS = {
 const DAILY_RATES = {
   courses:       { besac: 8.5, dijon: 0,  label: '8,50 €/j · Besac' },
   essence:       { besac: 4,   dijon: 0,  label: '4 €/j · Besac'    },
-  dijon_loisirs: { besac: 0,   dijon: 23, label: '23 €/j · Dijon'   },
+  dijon_loisirs: { besac: 0,   dijon: 23,   label: '23 €/j · Dijon'    },
+  dijon_appart:  { besac: 0,   dijon: 22.8, label: '22,80 €/j · Dijon' },
   // besac_loisirs : objectif manuel (pas de tarif journalier défini)
 };
 

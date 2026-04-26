@@ -38,7 +38,7 @@ Deux modes complémentaires :
 ### Catégories
 
 Liste fixe avec code couleur dédié :
-Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Santé, Revenus, Autre.
+Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre.
 
 ### Vue Statistiques
 
@@ -56,10 +56,16 @@ Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Santé, Revenus, Autre.
 
 ### Vue Objectifs
 
-- Limites de dépenses mensuelles par catégorie
-- Barre de progression par catégorie : verte < 80 %, orange 80–100 %, rouge au-delà
-- Édition inline (clic ✏) — pas de modal séparé
-- Section "Prévision mois prochain" : total attendu par catégorie d'après les récurrences configurées
+- Tableau annuel (12 mois × 5 catégories) pour les catégories suivies : Courses, Essence, Dijon Loisirs, Dijon Appart, Besac Loisirs
+- Plafonds mensuels **calculés dynamiquement** pour 4 catégories d'après `CITY_DAYS` × `DAILY_RATES` :
+  - Courses : 8,50 €/j à Besançon
+  - Essence : 4 €/j à Besançon
+  - Dijon Loisirs : 23 €/j à Dijon
+  - Dijon Appart : 22,80 €/j à Dijon
+- Besac Loisirs : objectif manuel (édition inline ✏)
+- Chaque cellule affiche `réel / plafond€` colorée (vert/orange/rouge)
+- Indicateur de progression du mois courant affiché dans l'en-tête du calendrier
+- Sources de données : `Jour-besac-dijon.md` (jours par ville), `prix-activité-jour.md` (tarifs)
 
 ### Authentification
 

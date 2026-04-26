@@ -19,6 +19,7 @@
       <button id="btn-view-calendar" class="active" role="tab" aria-selected="true">Calendrier</button>
       <button id="btn-view-stats" role="tab" aria-selected="false">Statistiques</button>
       <button id="btn-view-recurring" role="tab" aria-selected="false">Récurrences</button>
+      <button id="btn-view-goals" role="tab" aria-selected="false">Objectifs</button>
     </div>
 
     <div class="header-actions">
@@ -118,6 +119,17 @@
 
     <div id="recurring-list"></div>
 
+  </div>
+
+  <!-- ─── Vue Objectifs ──────────────────────────────────────────────── -->
+  <div id="view-goals" class="hidden">
+    <div class="goals-header">
+      <div>
+        <h2 class="goals-title">Objectifs mensuels</h2>
+        <p class="goals-subtitle">Fixez des limites de dépenses par catégorie et visualisez votre avancement. La section « Prévision » se base sur vos récurrences pour estimer le mois prochain.</p>
+      </div>
+    </div>
+    <div id="goals-body"></div>
   </div>
 
   <!-- ─── Modal : Nouvelle opération ─────────────────────────────────── -->

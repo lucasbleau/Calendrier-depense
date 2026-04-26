@@ -21,3 +21,9 @@ CREATE TABLE IF NOT EXISTS recurring_tasks (
   days        TEXT            NOT NULL,
   created_at  TIMESTAMPTZ     DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS goals (
+  category    TEXT            PRIMARY KEY,
+  amount      NUMERIC(10, 2)  NOT NULL,
+  updated_at  TIMESTAMPTZ     DEFAULT NOW()
+);

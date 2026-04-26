@@ -6,6 +6,7 @@
 
 const STORAGE_KEY   = 'expense-calendar-data-v1';
 const RECURRING_KEY = 'expense-calendar-recurring-v1';
+const GOALS_KEY     = 'expense-calendar-goals-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -123,6 +124,41 @@ const RDB = {
       return;
     }
     const res = await fetch(`/api/recurring?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Suppression échouée');
+  },
+};
+
+const GoalDB = {
+  async load() {
+    if (!IS_DEPLOYED) {
+      return JSON.parse(localStorage.getItem(GOALS_KEY) || '{}');
+    }
+    const res = await fetch('/api/goals');
+    if (!res.ok) throw new Error('Impossible de charger les objectifs');
+    return res.json();
+  },
+
+  async save(category, amount) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(GOALS_KEY, JSON.stringify(state.goals));
+      return;
+    }
+    const res = await fetch('/api/goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, amount }),
+    });
+    if (!res.ok) throw new Error('Sauvegarde échouée');
+  },
+
+  async remove(category) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(GOALS_KEY, JSON.stringify(state.goals));
+      return;
+    }
+    const res = await fetch(`/api/goals?category=${encodeURIComponent(category)}`, {
       method: 'DELETE',
     });
     if (!res.ok) throw new Error('Suppression échouée');
@@ -276,10 +312,12 @@ const today = new Date();
 const state = {
   expenses:     [],
   recurring:    [],
+  goals:        {},
   view:         'calendar',
   currentYear:  today.getFullYear(),
   currentMonth: today.getMonth(),
   selectedDate: null,
+  editingGoal:  null,
 };
 
 let modalRecurDays = [];  // jours sélectionnés dans le modal récurrence
@@ -928,6 +966,159 @@ function showToast(msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Rendu : Vue Objectifs
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderGoals() {
+  const container = document.getElementById('goals-body');
+  const { currentYear, currentMonth } = state;
+
+  const monthData = getMonthData(currentYear, currentMonth);
+  const catSpending = {};
+  for (const e of monthData) {
+    if (e.type === 'depense') catSpending[e.category] = (catSpending[e.category] || 0) + e.amount;
+  }
+
+  const catRecurring = {};
+  for (const task of state.recurring) {
+    if (task.type === 'depense') {
+      catRecurring[task.category] = (catRecurring[task.category] || 0) + task.amount * task.days.length;
+    }
+  }
+
+  const expenseCats = CATEGORIES.filter(c => c.id !== 'revenus');
+
+  let html = `<div class="goals-month-title">${MONTHS[currentMonth]} ${currentYear}</div><div class="goals-grid">`;
+
+  for (const cat of expenseCats) {
+    const actual  = catSpending[cat.id] || 0;
+    const limit   = state.goals[cat.id];
+    const editing = state.editingGoal === cat.id;
+
+    let barHtml = '';
+    if (limit && !editing) {
+      const pct      = Math.min(100, (actual / limit) * 100);
+      const barClass = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok';
+      barHtml = `
+        <div class="goal-bar-row">
+          <div class="goal-bar-wrap"><div class="goal-bar ${barClass}" style="width:${pct.toFixed(1)}%"></div></div>
+          <span class="goal-limit">/ ${fmtEUR(limit)}</span>
+        </div>`;
+    }
+
+    const editHtml = editing ? `
+      <div class="goal-inline-edit">
+        <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
+          value="${limit || ''}" placeholder="Montant (€)" inputmode="decimal" />
+        <button class="btn-goal-confirm" data-cat="${cat.id}">✓</button>
+        <button class="btn-goal-cancel" data-cat="${cat.id}">✕</button>
+      </div>` : '';
+
+    html += `
+      <div class="goal-card" data-cat="${cat.id}">
+        <div class="goal-card-top">
+          <div class="goal-cat-info">
+            <span class="goal-dot" style="background:${cat.color}"></span>
+            <span class="goal-cat-name">${cat.label}</span>
+          </div>
+          <div class="goal-card-right">
+            <span class="goal-actual${actual > 0 ? ' has-spending' : ''}">${fmtEUR(actual)}</span>
+            <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="${limit ? 'Modifier' : 'Fixer un objectif'}">✏</button>
+            ${limit ? `<button class="btn-icon btn-del-goal" data-cat="${cat.id}" title="Supprimer">✕</button>` : ''}
+          </div>
+        </div>
+        ${barHtml}${editHtml}
+      </div>`;
+  }
+
+  html += `</div>`;
+
+  // Projection section
+  const projCats = expenseCats.filter(c => catRecurring[c.id]);
+  html += `
+    <div class="goals-proj-title">Prévision — mois prochain</div>
+    <p class="goals-proj-sub">Dépenses attendues d'après vos récurrences configurées.</p>`;
+
+  if (!projCats.length) {
+    html += `<p class="goals-empty-proj">Aucune récurrence de dépense configurée.</p>`;
+  } else {
+    html += `<div class="goals-proj-grid">`;
+    for (const cat of projCats) {
+      const proj     = catRecurring[cat.id];
+      const limit    = state.goals[cat.id];
+      const barClass = limit ? (proj >= limit ? 'over' : proj >= limit * 0.8 ? 'warn' : 'ok') : '';
+      html += `
+        <div class="goal-proj-card">
+          <span class="goal-dot" style="background:${cat.color}"></span>
+          <span class="goal-cat-name">${cat.label}</span>
+          <span class="goal-proj-amount${barClass ? ' ' + barClass : ''}">${fmtEUR(proj)}</span>
+          ${limit ? `<span class="goal-proj-limit">/ ${fmtEUR(limit)}</span>` : ''}
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-set-goal').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.editingGoal = btn.dataset.cat;
+      renderGoals();
+      const input = document.getElementById(`goal-input-${btn.dataset.cat}`);
+      if (input) { input.focus(); input.select(); }
+    });
+  });
+
+  container.querySelectorAll('.btn-del-goal').forEach(btn => {
+    btn.addEventListener('click', () => deleteGoal(btn.dataset.cat));
+  });
+
+  container.querySelectorAll('.btn-goal-confirm').forEach(btn => {
+    btn.addEventListener('click', () => saveGoal(btn.dataset.cat));
+  });
+
+  container.querySelectorAll('.btn-goal-cancel').forEach(btn => {
+    btn.addEventListener('click', () => { state.editingGoal = null; renderGoals(); });
+  });
+
+  container.querySelectorAll('.goal-edit-input').forEach(input => {
+    input.addEventListener('keydown', e => {
+      const cat = input.closest('[data-cat]').dataset.cat;
+      if (e.key === 'Enter') saveGoal(cat);
+      if (e.key === 'Escape') { state.editingGoal = null; renderGoals(); }
+    });
+  });
+}
+
+async function saveGoal(category) {
+  const input = document.getElementById(`goal-input-${category}`);
+  if (!input) return;
+  const amount = parseAmount(input.value);
+  if (!amount) { input.focus(); return; }
+
+  state.goals[category] = amount;
+  state.editingGoal = null;
+  renderGoals();
+
+  try {
+    await GoalDB.save(category, amount);
+  } catch {
+    showToast('Erreur lors de la sauvegarde');
+  }
+}
+
+async function deleteGoal(category) {
+  delete state.goals[category];
+  renderGoals();
+
+  try {
+    await GoalDB.remove(category);
+  } catch {
+    showToast('Erreur lors de la suppression');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Vues
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -936,17 +1127,21 @@ function setView(view) {
   document.getElementById('view-calendar').classList.toggle('hidden', view !== 'calendar');
   document.getElementById('view-stats').classList.toggle('hidden', view !== 'stats');
   document.getElementById('view-recurring').classList.toggle('hidden', view !== 'recurring');
+  document.getElementById('view-goals').classList.toggle('hidden', view !== 'goals');
 
   document.getElementById('btn-view-calendar').classList.toggle('active', view === 'calendar');
   document.getElementById('btn-view-stats').classList.toggle('active', view === 'stats');
   document.getElementById('btn-view-recurring').classList.toggle('active', view === 'recurring');
+  document.getElementById('btn-view-goals').classList.toggle('active', view === 'goals');
 
   document.getElementById('btn-view-calendar').setAttribute('aria-selected', view === 'calendar');
   document.getElementById('btn-view-stats').setAttribute('aria-selected', view === 'stats');
   document.getElementById('btn-view-recurring').setAttribute('aria-selected', view === 'recurring');
+  document.getElementById('btn-view-goals').setAttribute('aria-selected', view === 'goals');
 
   if (view === 'stats') renderStats();
   if (view === 'recurring') renderRecurring();
+  if (view === 'goals') renderGoals();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1024,9 +1219,10 @@ async function init() {
   });
 
   // Onglets
-  document.getElementById('btn-view-calendar').addEventListener('click', () => setView('calendar'));
-  document.getElementById('btn-view-stats').addEventListener('click',    () => setView('stats'));
+  document.getElementById('btn-view-calendar').addEventListener('click',  () => setView('calendar'));
+  document.getElementById('btn-view-stats').addEventListener('click',     () => setView('stats'));
   document.getElementById('btn-view-recurring').addEventListener('click', () => setView('recurring'));
+  document.getElementById('btn-view-goals').addEventListener('click',     () => setView('goals'));
 
   // Import
   document.getElementById('btn-import').addEventListener('click', openImportModal);
@@ -1078,11 +1274,12 @@ async function init() {
   const overlay = document.getElementById('loading-overlay');
   overlay.classList.remove('hidden');
   try {
-    [state.expenses, state.recurring] = await Promise.all([DB.load(), RDB.load()]);
+    [state.expenses, state.recurring, state.goals] = await Promise.all([DB.load(), RDB.load(), GoalDB.load()]);
   } catch {
     showToast('Erreur de connexion — mode hors ligne activé');
     state.expenses  = JSON.parse(localStorage.getItem(STORAGE_KEY)   || '[]');
     state.recurring = JSON.parse(localStorage.getItem(RECURRING_KEY) || '[]');
+    state.goals     = JSON.parse(localStorage.getItem(GOALS_KEY)     || '{}');
   } finally {
     overlay.classList.add('hidden');
   }

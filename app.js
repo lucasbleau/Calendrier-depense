@@ -30,6 +30,32 @@ const CATEGORIES = [
 // Catégories suivies dans la vue Objectifs
 const GOAL_CATEGORIES = ['courses', 'essence', 'dijon_loisirs', 'besac_loisirs'];
 
+// Jours par mois passés à Besançon et Dijon [besac, dijon] — indice 0 = janvier
+const CITY_DAYS = {
+  2026: [
+    [26,  5],  // Janvier
+    [23,  5],  // Février
+    [26,  5],  // Mars
+    [25,  5],  // Avril
+    [23,  8],  // Mai
+    [25,  5],  // Juin
+    [21, 10],  // Juillet
+    [26,  5],  // Août
+    [27,  3],  // Septembre
+    [24,  7],  // Octobre
+    [25,  5],  // Novembre
+    [28,  3],  // Décembre
+  ],
+};
+
+// Tarif journalier par catégorie et par ville
+const DAILY_RATES = {
+  courses:       { besac: 8.5, dijon: 0,  label: '8,50 €/j · Besac' },
+  essence:       { besac: 4,   dijon: 0,  label: '4 €/j · Besac'    },
+  dijon_loisirs: { besac: 0,   dijon: 23, label: '23 €/j · Dijon'   },
+  // besac_loisirs : objectif manuel (pas de tarif journalier défini)
+};
+
 const CATEGORY_KEYWORDS = {
   courses:     ['carrefour','leclerc','auchan','lidl','intermarché','intermarch','monoprix','casino','franprix','picard','biocbon','bio c bon','naturalia','grand frais','supermarché','supermarche','superette','épicerie','epicerie'],
   essence:     ['total ','total energie','bp ','shell','esso','station service','station-service','station','vinci autoroute','autoroute'],
@@ -339,6 +365,26 @@ let modalRecurDays = [];  // jours sélectionnés dans le modal récurrence
 // Agrégations
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Calcule l'objectif dynamique d'une catégorie pour un mois donné
+// Retourne null si aucune donnée disponible (autre année ou tarif non défini)
+function getDynamicGoal(categoryId, year, month) {
+  const yearData = CITY_DAYS[year];
+  if (!yearData) return null;
+  const days  = yearData[month];
+  if (!days)   return null;
+  const rates = DAILY_RATES[categoryId];
+  if (!rates)  return null;
+  const amount = days[0] * rates.besac + days[1] * rates.dijon;
+  return amount > 0 ? Math.round(amount * 100) / 100 : null;
+}
+
+// Retourne le plafond applicable : dynamique si défini, sinon objectif manuel
+function getGoalForMonth(categoryId, year, month) {
+  const dynamic = getDynamicGoal(categoryId, year, month);
+  if (dynamic !== null) return dynamic;
+  return state.goals[categoryId] || null;
+}
+
 function getMonthData(year, month) {
   const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
   return state.expenses.filter(e => e.date.startsWith(prefix));
@@ -374,7 +420,10 @@ function renderCalendar() {
   // Indicateur objectif mensuel
   const goalIndicator = document.getElementById('month-goal-indicator');
   if (goalIndicator) {
-    const totalGoal = GOAL_CATEGORIES.reduce((s, id) => s + (state.goals[id] || 0), 0);
+    const totalGoal = GOAL_CATEGORIES.reduce((s, id) => {
+      const g = getGoalForMonth(id, currentYear, currentMonth);
+      return s + (g || 0);
+    }, 0);
     if (totalGoal > 0) {
       const totalSpent = monthData.filter(e => e.type === 'depense' && GOAL_CATEGORIES.includes(e.category))
                                    .reduce((s, e) => s + e.amount, 0);
@@ -1004,44 +1053,49 @@ function renderGoals() {
   const nowMonth = today.getMonth();
   const nowYear  = today.getFullYear();
 
-  const goalCats   = GOAL_CATEGORIES.map(id => getCat(id));
-  const totalGoal  = goalCats.reduce((s, cat) => s + (state.goals[cat.id] || 0), 0);
+  const goalCats = GOAL_CATEGORIES.map(id => getCat(id));
 
-  // ── Ligne de réglage des objectifs ───────────────────────────────────────
+  // Ligne de reglage / info des objectifs
   let html = `<div class="goals-settings">`;
   for (const cat of goalCats) {
-    const limit   = state.goals[cat.id];
-    const editing = state.editingGoal === cat.id;
-    html += `<div class="goal-setting-card" data-cat="${cat.id}">
-      <span class="goal-dot" style="background:${cat.color}"></span>
-      <span class="goal-cat-name">${cat.label}</span>`;
-    if (editing) {
-      html += `<div class="goal-inline-edit" style="margin-left:auto">
-        <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
-          value="${limit || ''}" placeholder="€/mois" inputmode="decimal" />
-        <button class="btn-goal-confirm" data-cat="${cat.id}">✓</button>
-        <button class="btn-goal-cancel"  data-cat="${cat.id}">✕</button>
+    const rates = DAILY_RATES[cat.id];
+    if (rates) {
+      html += `<div class="goal-rate-card" data-cat="${cat.id}">
+        <span class="goal-dot" style="background:${cat.color}"></span>
+        <span class="goal-cat-name">${cat.label}</span>
+        <span class="goal-rate-label">${rates.label}</span>
       </div>`;
     } else {
-      html += `<span class="goal-setting-amount">${limit ? fmtEUR(limit) + '/mois' : '—'}</span>
-        <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="Modifier">✏</button>`;
+      const limit   = state.goals[cat.id];
+      const editing = state.editingGoal === cat.id;
+      html += `<div class="goal-setting-card" data-cat="${cat.id}">
+        <span class="goal-dot" style="background:${cat.color}"></span>
+        <span class="goal-cat-name">${cat.label}</span>`;
+      if (editing) {
+        html += `<div class="goal-inline-edit" style="margin-left:auto">
+          <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
+            value="${limit || ''}" placeholder="€/mois" inputmode="decimal" />
+          <button class="btn-goal-confirm" data-cat="${cat.id}">✓</button>
+          <button class="btn-goal-cancel"  data-cat="${cat.id}">✕</button>
+        </div>`;
+      } else {
+        html += `<span class="goal-setting-amount">${limit ? fmtEUR(limit) + '/mois' : '—'}</span>
+          <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="Modifier">✏</button>`;
+      }
+      html += `</div>`;
     }
-    html += `</div>`;
   }
   html += `</div>`;
+  html += `<p class="goals-total-hint">Plafonds calculés d'après les jours par ville — ${currentYear}</p>`;
 
-  if (totalGoal > 0) {
-    html += `<p class="goals-total-hint">Objectif mensuel total : <strong>${fmtEUR(totalGoal)}</strong></p>`;
-  }
-
-  // ── Tableau annuel ────────────────────────────────────────────────────────
+  // Tableau annuel
   html += `
     <div class="goals-year-header">${currentYear}</div>
     <div class="goals-year-wrap">
       <table class="goals-year-table">
         <thead><tr>
           <th>Mois</th>
-          ${goalCats.map(c => `<th><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${c.label.replace(' Loisirs', ' L.')}</th>`).join('')}
+          ${goalCats.map(c => `<th><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${c.label.replace(' Loisirs', ' L.')}</th>`).join('')}
           <th>Total</th>
         </tr></thead>
         <tbody>`;
@@ -1051,35 +1105,39 @@ function renderGoals() {
     const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
     const monthData = getMonthData(currentYear, m);
 
+    const limits     = goalCats.map(cat => getGoalForMonth(cat.id, currentYear, m));
+    const totalLimit = limits.reduce((s, v) => s + (v || 0), 0);
+
     const amounts = goalCats.map(cat =>
       monthData.filter(e => e.type === 'depense' && e.category === cat.id)
                .reduce((s, e) => s + e.amount, 0)
     );
     const totalSpent = amounts.reduce((s, v) => s + v, 0);
-    const pct        = totalGoal > 0 ? totalSpent / totalGoal : 0;
-    const totalCls   = totalGoal > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
+    const pct        = totalLimit > 0 ? totalSpent / totalLimit : 0;
+    const totalCls   = totalLimit > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
 
     html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
     html += `<td class="gcell-month">${MONTHS_SHORT[m]}</td>`;
 
     amounts.forEach((amount, i) => {
-      const limit = state.goals[goalCats[i].id];
+      const limit = limits[i];
       let cls = '';
       if (amount > 0 && limit) {
         const p = amount / limit;
         cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
       }
-      const display = amount > 0 ? fmtCompact(amount) : (isFuture ? '—' : '0€');
-      html += `<td class="gcell-amount ${cls}">${display}</td>`;
+      const display  = amount > 0 ? fmtCompact(amount) : (isFuture ? '—' : '0€');
+      const limitStr = limit ? `<span class="gcell-lim">/${fmtCompact(limit)}</span>` : '';
+      html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
     });
 
-    // Cellule total
     const totalDisplay = totalSpent > 0 ? fmtCompact(totalSpent) : (isFuture ? '—' : '0€');
-    const barWidth     = totalGoal > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
+    const barWidth     = totalLimit > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
+    const totalLimStr  = totalLimit > 0 ? `<span class="gcell-lim">/${fmtCompact(totalLimit)}</span>` : '';
     html += `<td class="gcell-total">
       <div class="gcell-total-inner">
-        <span class="${totalCls}">${totalDisplay}</span>
-        ${totalGoal > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
+        <span class="${totalCls}">${totalDisplay}${totalLimStr}</span>
+        ${totalLimit > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
       </div>
     </td>`;
     html += `</tr>`;
@@ -1088,7 +1146,7 @@ function renderGoals() {
   html += `</tbody></table></div>`;
   container.innerHTML = html;
 
-  // ── Événements ────────────────────────────────────────────────────────────
+  // Evenements
   container.querySelectorAll('.btn-set-goal').forEach(btn => {
     btn.addEventListener('click', () => {
       state.editingGoal = btn.dataset.cat;

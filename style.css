@@ -1263,6 +1263,31 @@ body {
 .goal-setting-card:hover .btn-set-goal { opacity: 1; }
 .btn-set-goal:hover { color: var(--accent); }
 
+.goal-rate-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  min-width: 160px;
+}
+.goal-rate-label {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gcell-lim {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 1px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
 .goal-inline-edit {
   display: flex;
   align-items: center;

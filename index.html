@@ -18,7 +18,8 @@
     <div class="view-tabs" role="tablist">
       <button id="btn-view-calendar" class="active" role="tab" aria-selected="true">Calendrier</button>
       <button id="btn-view-stats" role="tab" aria-selected="false">Statistiques</button>
-      <button id="btn-view-budget" role="tab" aria-selected="false">Budget</button>
+      <button id="btn-view-recurring" role="tab" aria-selected="false">Récurrences</button>
+      <button id="btn-view-goals" role="tab" aria-selected="false">Objectifs</button>
     </div>
 
     <div class="header-actions">
@@ -106,8 +107,8 @@
 
   </div>
 
-  <!-- ─── Vue Budget (récurrences + objectifs) ──────────────────────── -->
-  <div id="view-budget" class="hidden">
+  <!-- ─── Vue Récurrences ─────────────────────────────────────────────── -->
+  <div id="view-recurring" class="hidden">
 
     <div class="recurring-header">
       <div>
@@ -119,8 +120,11 @@
 
     <div id="recurring-list"></div>
 
-    <div id="goals-body"></div>
+  </div>
 
+  <!-- ─── Vue Objectifs ──────────────────────────────────────────────── -->
+  <div id="view-goals" class="hidden">
+    <div id="goals-body"></div>
   </div>
 
   <!-- ─── Modal : Nouvelle opération ─────────────────────────────────── -->

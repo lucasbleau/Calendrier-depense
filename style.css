@@ -988,11 +988,11 @@ body {
    Vue Récurrences
    ───────────────────────────────────────────────────────────────────────────── */
 
-#view-budget {
+#view-recurring {
   padding: 1.5rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-  max-width: 900px;
+  max-width: 780px;
   margin: 0 auto;
 }
 
@@ -1156,7 +1156,7 @@ body {
 }
 
 @media (max-width: 700px) {
-  #view-budget { padding: 1rem; }
+  #view-recurring { padding: 1rem; }
   .recurring-header { flex-direction: column; }
   .recurring-card { grid-template-columns: 1.5rem 1fr auto auto; }
   .recurring-card .btn-edit-recur { display: none; }
@@ -1186,7 +1186,11 @@ body {
    ───────────────────────────────────────────────────────────────────────────── */
 
 #view-goals {
-  /* contenu rendu dans #view-budget */
+  padding: 1.5rem;
+  overflow-y: auto;
+  height: calc(100vh - var(--header-h));
+  max-width: 900px;
+  margin: 0 auto;
 }
 
 .goals-header { margin-bottom: 1.5rem; }
@@ -1432,7 +1436,7 @@ body {
 .goal-bar.over { background: var(--depense); }
 
 @media (max-width: 700px) {
-  #goals-body { padding: 0; }
+  #view-goals { padding: 1rem; }
   .goals-settings { gap: 0.4rem; }
   .goal-setting-card { min-width: 140px; padding: 0.55rem 0.65rem; }
 }

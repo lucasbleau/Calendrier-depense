@@ -1055,7 +1055,8 @@ function renderGoals() {
   const nowMonth = today.getMonth();
   const nowYear  = today.getFullYear();
 
-  const goalCats = GOAL_CATEGORIES.map(id => getCat(id));
+  const goalCats  = GOAL_CATEGORIES.map(id => getCat(id));
+  const tableCats = CATEGORIES.filter(c => c.id !== 'revenus');
 
   // Ligne de reglage / info des objectifs
   let html = `<div class="goals-settings">`;
@@ -1088,16 +1089,20 @@ function renderGoals() {
     }
   }
   html += `</div>`;
-  html += `<div class="budget-section-divider">Objectifs — ${currentYear}</div>`;
 
-  // Tableau annuel
+  // Tableau annuel — toutes les categories de depenses
+  const abbrev = label => label
+    .replace('Abonnements', 'Abo.')
+    .replace(' Loisirs', ' L.')
+    .replace(' Appart', ' A.');
+
   html += `
     <div class="goals-year-header">${currentYear}</div>
     <div class="goals-year-wrap">
       <table class="goals-year-table">
         <thead><tr>
           <th>Mois</th>
-          ${goalCats.map(c => `<th><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${c.label.replace(' Loisirs', ' L.')}</th>`).join('')}
+          ${tableCats.map(c => `<th title="${c.label}"><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:2px"></span>${abbrev(c.label)}</th>`).join('')}
           <th>Total</th>
         </tr></thead>
         <tbody>`;
@@ -1107,39 +1112,42 @@ function renderGoals() {
     const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
     const monthData = getMonthData(currentYear, m);
 
-    const limits     = goalCats.map(cat => getGoalForMonth(cat.id, currentYear, m));
-    const totalLimit = limits.reduce((s, v) => s + (v || 0), 0);
-
-    const amounts = goalCats.map(cat =>
+    const amounts = tableCats.map(cat =>
       monthData.filter(e => e.type === 'depense' && e.category === cat.id)
                .reduce((s, e) => s + e.amount, 0)
     );
     const totalSpent = amounts.reduce((s, v) => s + v, 0);
-    const pct        = totalLimit > 0 ? totalSpent / totalLimit : 0;
-    const totalCls   = totalLimit > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
+
+    const totalGoalAll = tableCats.reduce((s, cat) => {
+      const g = getGoalForMonth(cat.id, currentYear, m);
+      return s + (g || 0);
+    }, 0);
+    const pct      = totalGoalAll > 0 ? totalSpent / totalGoalAll : 0;
+    const totalCls = totalGoalAll > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
 
     html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
     html += `<td class="gcell-month">${MONTHS_SHORT[m]}</td>`;
 
     amounts.forEach((amount, i) => {
-      const limit = limits[i];
+      const cat   = tableCats[i];
+      const limit = getGoalForMonth(cat.id, currentYear, m);
       let cls = '';
       if (amount > 0 && limit) {
         const p = amount / limit;
         cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
       }
-      const display  = amount > 0 ? fmtCompact(amount) : (isFuture ? '—' : '0€');
+      const display  = amount > 0 ? fmtCompact(amount) : (isFuture ? '—' : '');
       const limitStr = limit ? `<span class="gcell-lim">/${fmtCompact(limit)}</span>` : '';
       html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
     });
 
     const totalDisplay = totalSpent > 0 ? fmtCompact(totalSpent) : (isFuture ? '—' : '0€');
-    const barWidth     = totalLimit > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
-    const totalLimStr  = totalLimit > 0 ? `<span class="gcell-lim">/${fmtCompact(totalLimit)}</span>` : '';
+    const barWidth     = totalGoalAll > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
+    const totalLimStr  = totalGoalAll > 0 ? `<span class="gcell-lim">/${fmtCompact(totalGoalAll)}</span>` : '';
     html += `<td class="gcell-total">
       <div class="gcell-total-inner">
         <span class="${totalCls}">${totalDisplay}${totalLimStr}</span>
-        ${totalLimit > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
+        ${totalGoalAll > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
       </div>
     </td>`;
     html += `</tr>`;
@@ -1209,27 +1217,26 @@ async function deleteGoal(category) {
 // Vues
 // ─────────────────────────────────────────────────────────────────────────────
 
-function renderBudget() {
-  renderRecurring();
-  renderGoals();
-}
-
 function setView(view) {
   state.view = view;
   document.getElementById('view-calendar').classList.toggle('hidden', view !== 'calendar');
   document.getElementById('view-stats').classList.toggle('hidden', view !== 'stats');
-  document.getElementById('view-budget').classList.toggle('hidden', view !== 'budget');
+  document.getElementById('view-recurring').classList.toggle('hidden', view !== 'recurring');
+  document.getElementById('view-goals').classList.toggle('hidden', view !== 'goals');
 
   document.getElementById('btn-view-calendar').classList.toggle('active', view === 'calendar');
   document.getElementById('btn-view-stats').classList.toggle('active', view === 'stats');
-  document.getElementById('btn-view-budget').classList.toggle('active', view === 'budget');
+  document.getElementById('btn-view-recurring').classList.toggle('active', view === 'recurring');
+  document.getElementById('btn-view-goals').classList.toggle('active', view === 'goals');
 
   document.getElementById('btn-view-calendar').setAttribute('aria-selected', view === 'calendar');
   document.getElementById('btn-view-stats').setAttribute('aria-selected', view === 'stats');
-  document.getElementById('btn-view-budget').setAttribute('aria-selected', view === 'budget');
+  document.getElementById('btn-view-recurring').setAttribute('aria-selected', view === 'recurring');
+  document.getElementById('btn-view-goals').setAttribute('aria-selected', view === 'goals');
 
   if (view === 'stats') renderStats();
-  if (view === 'budget') renderBudget();
+  if (view === 'recurring') renderRecurring();
+  if (view === 'goals') renderGoals();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1307,9 +1314,10 @@ async function init() {
   });
 
   // Onglets
-  document.getElementById('btn-view-calendar').addEventListener('click', () => setView('calendar'));
-  document.getElementById('btn-view-stats').addEventListener('click',    () => setView('stats'));
-  document.getElementById('btn-view-budget').addEventListener('click',   () => setView('budget'));
+  document.getElementById('btn-view-calendar').addEventListener('click',  () => setView('calendar'));
+  document.getElementById('btn-view-stats').addEventListener('click',     () => setView('stats'));
+  document.getElementById('btn-view-recurring').addEventListener('click', () => setView('recurring'));
+  document.getElementById('btn-view-goals').addEventListener('click',     () => setView('goals'));
 
   // Import
   document.getElementById('btn-import').addEventListener('click', openImportModal);

@@ -1165,6 +1165,23 @@ body {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   Indicateur objectif dans le calendrier
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.month-goal-indicator {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  white-space: nowrap;
+}
+.month-goal-indicator.ok   { color: var(--revenu);  border-color: var(--revenu-faint);  background: var(--revenu-faint); }
+.month-goal-indicator.warn { color: #C17F3C;         border-color: #F5E6D0;              background: #F5E6D0; }
+.month-goal-indicator.over { color: var(--depense);  border-color: var(--depense-faint); background: var(--depense-faint); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
    Vue Objectifs
    ───────────────────────────────────────────────────────────────────────────── */
 
@@ -1172,7 +1189,7 @@ body {
   padding: 1.5rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-  max-width: 780px;
+  max-width: 820px;
   margin: 0 auto;
 }
 
@@ -1193,46 +1210,27 @@ body {
   line-height: 1.5;
 }
 
-.goals-month-title {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text);
+/* Ligne de réglage des objectifs */
+.goals-settings {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
   margin-bottom: 0.75rem;
 }
 
-.goals-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.65rem;
-  margin-bottom: 2rem;
-}
-
-.goal-card {
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius);
-  padding: 0.85rem 1rem;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.goal-card:hover {
-  border-color: var(--border);
-  box-shadow: var(--shadow);
-}
-
-.goal-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.goal-cat-info {
+.goal-setting-card {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.85rem;
+  flex: 1;
+  min-width: 175px;
+  transition: border-color 0.15s;
 }
+.goal-setting-card:hover { border-color: var(--border); }
 
 .goal-dot {
   width: 8px;
@@ -1248,79 +1246,31 @@ body {
   white-space: nowrap;
 }
 
-.goal-card-right {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  flex-shrink: 0;
-}
-
-.goal-actual {
+.goal-setting-amount {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  color: var(--text-3);
-  margin-right: 0.15rem;
+  color: var(--text-2);
+  margin-left: auto;
+  margin-right: 0.1rem;
 }
-.goal-actual.has-spending { color: var(--depense); }
 
 .btn-set-goal {
   font-size: 12px;
-  opacity: 0.4;
+  opacity: 0.35;
   transition: opacity 0.15s, color 0.15s;
-  padding: 0.15rem 0.3rem;
+  padding: 0.15rem 0.25rem;
 }
-.goal-card:hover .btn-set-goal { opacity: 1; }
+.goal-setting-card:hover .btn-set-goal { opacity: 1; }
 .btn-set-goal:hover { color: var(--accent); }
-
-.btn-del-goal {
-  font-size: 11px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-  padding: 0.15rem 0.3rem;
-}
-.goal-card:hover .btn-del-goal { opacity: 0.6; }
-.btn-del-goal:hover { color: var(--depense); opacity: 1 !important; }
-
-.goal-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.55rem;
-}
-
-.goal-bar-wrap {
-  flex: 1;
-  height: 5px;
-  background: var(--border-light);
-  border-radius: 99px;
-  overflow: hidden;
-}
-
-.goal-bar {
-  height: 100%;
-  border-radius: 99px;
-  transition: width 0.3s ease;
-}
-.goal-bar.ok   { background: var(--revenu); }
-.goal-bar.warn { background: #C17F3C; }
-.goal-bar.over { background: var(--depense); }
-
-.goal-limit {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
 
 .goal-inline-edit {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  margin-top: 0.55rem;
 }
 
 .goal-edit-input {
-  flex: 1;
+  width: 90px;
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
@@ -1356,66 +1306,111 @@ body {
 }
 .btn-goal-cancel:hover { border-color: var(--depense); color: var(--depense); }
 
-/* Projection */
-.goals-proj-title {
+.goals-total-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: right;
+  margin-bottom: 1.25rem;
+}
+
+/* Tableau annuel */
+.goals-year-header {
   font-family: 'Fraunces', Georgia, serif;
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.65rem;
 }
 
-.goals-proj-sub {
-  font-size: 12px;
-  color: var(--text-3);
-  margin-bottom: 0.75rem;
-}
-
-.goals-empty-proj {
-  font-size: 13px;
-  color: var(--text-3);
-  font-style: italic;
-  padding: 1rem 0;
-}
-
-.goals-proj-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.5rem;
-}
-
-.goal-proj-card {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--surface);
+.goals-year-wrap {
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.goals-year-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.goals-year-table th {
   padding: 0.6rem 0.85rem;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  border-bottom: 2px solid var(--border-light);
+  text-align: right;
+  white-space: nowrap;
 }
+.goals-year-table th:first-child { text-align: left; }
 
-.goal-proj-amount {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 500;
-  margin-left: auto;
-  color: var(--text-2);
-}
-.goal-proj-amount.ok   { color: var(--revenu); }
-.goal-proj-amount.warn { color: #C17F3C; }
-.goal-proj-amount.over { color: var(--depense); }
-
-.goal-proj-limit {
+.goals-year-table td {
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--border-light);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   color: var(--text-3);
+  text-align: right;
+}
+.goals-year-table tr:last-child td { border-bottom: none; }
+
+.gcell-month {
+  font-family: 'Inter', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500;
+  color: var(--text-2) !important;
+  text-align: left !important;
   white-space: nowrap;
 }
 
+.goals-year-table tr.cur-row td { background: var(--accent-faint); }
+.goals-year-table tr.cur-row .gcell-month {
+  color: var(--accent) !important;
+  font-weight: 700;
+}
+
+.gcell-amount.ok   { color: var(--revenu) !important; }
+.gcell-amount.warn { color: #C17F3C !important; }
+.gcell-amount.over { color: var(--depense) !important; font-weight: 600; }
+
+.gcell-total { min-width: 130px; }
+
+.gcell-total-inner {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.gcell-total-inner span.ok   { color: var(--revenu); }
+.gcell-total-inner span.warn { color: #C17F3C; }
+.gcell-total-inner span.over { color: var(--depense); font-weight: 600; }
+
+.goal-bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: var(--border-light);
+  border-radius: 99px;
+  overflow: hidden;
+  min-width: 40px;
+}
+.gbar-sm { min-width: 44px; flex: none; width: 44px; height: 4px; }
+
+.goal-bar {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.3s ease;
+}
+.goal-bar.ok   { background: var(--revenu); }
+.goal-bar.warn { background: #C17F3C; }
+.goal-bar.over { background: var(--depense); }
+
 @media (max-width: 700px) {
   #view-goals { padding: 1rem; }
-  .goals-grid { grid-template-columns: 1fr; }
-  .goals-proj-grid { grid-template-columns: 1fr; }
+  .goals-settings { gap: 0.4rem; }
+  .goal-setting-card { min-width: 140px; padding: 0.55rem 0.65rem; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

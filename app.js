@@ -14,16 +14,21 @@ const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','O
 const DAYS_SHORT = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 
 const CATEGORIES = [
-  { id: 'courses',     label: 'Courses',     color: '#7B9E6B' },
-  { id: 'voiture',     label: 'Voiture',     color: '#8B7355' },
-  { id: 'essence',     label: 'Essence',     color: '#C17F3C' },
-  { id: 'appart',      label: 'Appart',      color: '#8A6F4E' },
-  { id: 'abonnements', label: 'Abonnements', color: '#7A8FA6' },
-  { id: 'loisirs',     label: 'Loisirs',     color: '#A67B8A' },
-  { id: 'sante',       label: 'Santé',       color: '#C4856A' },
-  { id: 'revenus',     label: 'Revenus',     color: '#5B8E7D' },
-  { id: 'autre',       label: 'Autre',       color: '#9A9888' },
+  { id: 'courses',       label: 'Courses',       color: '#7B9E6B' },
+  { id: 'voiture',       label: 'Voiture',       color: '#8B7355' },
+  { id: 'essence',       label: 'Essence',       color: '#C17F3C' },
+  { id: 'appart',        label: 'Appart',        color: '#8A6F4E' },
+  { id: 'abonnements',   label: 'Abonnements',   color: '#7A8FA6' },
+  { id: 'loisirs',       label: 'Loisirs',       color: '#A67B8A' },
+  { id: 'dijon_loisirs', label: 'Dijon Loisirs', color: '#C4856A' },
+  { id: 'besac_loisirs', label: 'Besac Loisirs', color: '#8B7BA8' },
+  { id: 'epargne',       label: 'Épargne',       color: '#5B8E7D' },
+  { id: 'revenus',       label: 'Revenus',       color: '#4A7C59' },
+  { id: 'autre',         label: 'Autre',         color: '#9A9888' },
 ];
+
+// Catégories suivies dans la vue Objectifs
+const GOAL_CATEGORIES = ['courses', 'essence', 'dijon_loisirs', 'besac_loisirs'];
 
 const CATEGORY_KEYWORDS = {
   courses:     ['carrefour','leclerc','auchan','lidl','intermarché','intermarch','monoprix','casino','franprix','picard','biocbon','bio c bon','naturalia','grand frais','supermarché','supermarche','superette','épicerie','epicerie'],
@@ -32,7 +37,7 @@ const CATEGORY_KEYWORDS = {
   voiture:     ['assurance auto','maif','macif','axa','gmf','matmut','carte grise','contrôle technique','controle technique','péage','peage','parking','garage','volkswagen','renault','peugeot'],
   abonnements: ['netflix','spotify','amazon prime','disney','apple ','apple.com','youtube premium','deezer','canal+','free mobile','sfr mobile','bouygues mobile','orange mobile','microsoft','xbox game pass'],
   loisirs:     ['restaurant','brasserie','bistrot','burger','mcdo','mcdonald','kfc','pizza','sushi','bar ','café ','cafe ','cinema','théâtre','theatre','concert','fnac','steam','playstation','amazon','cdiscount','zara','h&m','uniqlo','sport'],
-  sante:       ['pharmacie','médecin','medecin','docteur','dentiste','ophtalmo','kiné','kine','hopital','hôpital','clinique','cpam','mutuelle','secu'],
+  epargne:     ['boursorama','n26','livret a','livret','assurance vie','pel','cel','pea ','trade republic'],
   revenus:     ['salaire','virement reçu','virement recu','remboursement','allocation','prime','aides','caf ','pole emploi'],
 };
 
@@ -365,6 +370,22 @@ function renderCalendar() {
   document.getElementById('month-title').textContent = `${MONTHS[currentMonth]} ${currentYear}`;
 
   const monthData = getMonthData(currentYear, currentMonth);
+
+  // Indicateur objectif mensuel
+  const goalIndicator = document.getElementById('month-goal-indicator');
+  if (goalIndicator) {
+    const totalGoal = GOAL_CATEGORIES.reduce((s, id) => s + (state.goals[id] || 0), 0);
+    if (totalGoal > 0) {
+      const totalSpent = monthData.filter(e => e.type === 'depense' && GOAL_CATEGORIES.includes(e.category))
+                                   .reduce((s, e) => s + e.amount, 0);
+      const pct = totalSpent / totalGoal;
+      const cls = pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
+      goalIndicator.textContent = `${fmtCompact(totalSpent)} / ${fmtCompact(totalGoal)}`;
+      goalIndicator.className = `month-goal-indicator ${cls}`;
+    } else {
+      goalIndicator.className = 'month-goal-indicator hidden';
+    }
+  }
   const dayMap = {};
   for (const e of monthData) {
     if (!dayMap[e.date]) dayMap[e.date] = { depenses: 0, revenus: 0, count: 0 };
@@ -979,120 +1000,113 @@ function showToast(msg) {
 
 function renderGoals() {
   const container = document.getElementById('goals-body');
-  const { currentYear, currentMonth } = state;
+  const { currentYear } = state;
+  const nowMonth = today.getMonth();
+  const nowYear  = today.getFullYear();
 
-  const monthData = getMonthData(currentYear, currentMonth);
-  const catSpending = {};
-  for (const e of monthData) {
-    if (e.type === 'depense') catSpending[e.category] = (catSpending[e.category] || 0) + e.amount;
-  }
+  const goalCats   = GOAL_CATEGORIES.map(id => getCat(id));
+  const totalGoal  = goalCats.reduce((s, cat) => s + (state.goals[cat.id] || 0), 0);
 
-  const catRecurring = {};
-  for (const task of state.recurring) {
-    if (task.type === 'depense') {
-      catRecurring[task.category] = (catRecurring[task.category] || 0) + task.amount * task.days.length;
-    }
-  }
-
-  const expenseCats = CATEGORIES.filter(c => c.id !== 'revenus');
-
-  let html = `<div class="goals-month-title">${MONTHS[currentMonth]} ${currentYear}</div><div class="goals-grid">`;
-
-  for (const cat of expenseCats) {
-    const actual  = catSpending[cat.id] || 0;
+  // ── Ligne de réglage des objectifs ───────────────────────────────────────
+  let html = `<div class="goals-settings">`;
+  for (const cat of goalCats) {
     const limit   = state.goals[cat.id];
     const editing = state.editingGoal === cat.id;
-
-    let barHtml = '';
-    if (limit && !editing) {
-      const pct      = Math.min(100, (actual / limit) * 100);
-      const barClass = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok';
-      barHtml = `
-        <div class="goal-bar-row">
-          <div class="goal-bar-wrap"><div class="goal-bar ${barClass}" style="width:${pct.toFixed(1)}%"></div></div>
-          <span class="goal-limit">/ ${fmtEUR(limit)}</span>
-        </div>`;
-    }
-
-    const editHtml = editing ? `
-      <div class="goal-inline-edit">
+    html += `<div class="goal-setting-card" data-cat="${cat.id}">
+      <span class="goal-dot" style="background:${cat.color}"></span>
+      <span class="goal-cat-name">${cat.label}</span>`;
+    if (editing) {
+      html += `<div class="goal-inline-edit" style="margin-left:auto">
         <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
-          value="${limit || ''}" placeholder="Montant (€)" inputmode="decimal" />
+          value="${limit || ''}" placeholder="€/mois" inputmode="decimal" />
         <button class="btn-goal-confirm" data-cat="${cat.id}">✓</button>
-        <button class="btn-goal-cancel" data-cat="${cat.id}">✕</button>
-      </div>` : '';
-
-    html += `
-      <div class="goal-card" data-cat="${cat.id}">
-        <div class="goal-card-top">
-          <div class="goal-cat-info">
-            <span class="goal-dot" style="background:${cat.color}"></span>
-            <span class="goal-cat-name">${cat.label}</span>
-          </div>
-          <div class="goal-card-right">
-            <span class="goal-actual${actual > 0 ? ' has-spending' : ''}">${fmtEUR(actual)}</span>
-            <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="${limit ? 'Modifier' : 'Fixer un objectif'}">✏</button>
-            ${limit ? `<button class="btn-icon btn-del-goal" data-cat="${cat.id}" title="Supprimer">✕</button>` : ''}
-          </div>
-        </div>
-        ${barHtml}${editHtml}
+        <button class="btn-goal-cancel"  data-cat="${cat.id}">✕</button>
       </div>`;
-  }
-
-  html += `</div>`;
-
-  // Projection section
-  const projCats = expenseCats.filter(c => catRecurring[c.id]);
-  html += `
-    <div class="goals-proj-title">Prévision — mois prochain</div>
-    <p class="goals-proj-sub">Dépenses attendues d'après vos récurrences configurées.</p>`;
-
-  if (!projCats.length) {
-    html += `<p class="goals-empty-proj">Aucune récurrence de dépense configurée.</p>`;
-  } else {
-    html += `<div class="goals-proj-grid">`;
-    for (const cat of projCats) {
-      const proj     = catRecurring[cat.id];
-      const limit    = state.goals[cat.id];
-      const barClass = limit ? (proj >= limit ? 'over' : proj >= limit * 0.8 ? 'warn' : 'ok') : '';
-      html += `
-        <div class="goal-proj-card">
-          <span class="goal-dot" style="background:${cat.color}"></span>
-          <span class="goal-cat-name">${cat.label}</span>
-          <span class="goal-proj-amount${barClass ? ' ' + barClass : ''}">${fmtEUR(proj)}</span>
-          ${limit ? `<span class="goal-proj-limit">/ ${fmtEUR(limit)}</span>` : ''}
-        </div>`;
+    } else {
+      html += `<span class="goal-setting-amount">${limit ? fmtEUR(limit) + '/mois' : '—'}</span>
+        <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="Modifier">✏</button>`;
     }
     html += `</div>`;
   }
+  html += `</div>`;
 
+  if (totalGoal > 0) {
+    html += `<p class="goals-total-hint">Objectif mensuel total : <strong>${fmtEUR(totalGoal)}</strong></p>`;
+  }
+
+  // ── Tableau annuel ────────────────────────────────────────────────────────
+  html += `
+    <div class="goals-year-header">${currentYear}</div>
+    <div class="goals-year-wrap">
+      <table class="goals-year-table">
+        <thead><tr>
+          <th>Mois</th>
+          ${goalCats.map(c => `<th><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${c.label.replace(' Loisirs', ' L.')}</th>`).join('')}
+          <th>Total</th>
+        </tr></thead>
+        <tbody>`;
+
+  for (let m = 0; m < 12; m++) {
+    const isCurrent = m === nowMonth && currentYear === nowYear;
+    const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
+    const monthData = getMonthData(currentYear, m);
+
+    const amounts = goalCats.map(cat =>
+      monthData.filter(e => e.type === 'depense' && e.category === cat.id)
+               .reduce((s, e) => s + e.amount, 0)
+    );
+    const totalSpent = amounts.reduce((s, v) => s + v, 0);
+    const pct        = totalGoal > 0 ? totalSpent / totalGoal : 0;
+    const totalCls   = totalGoal > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
+
+    html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
+    html += `<td class="gcell-month">${MONTHS_SHORT[m]}</td>`;
+
+    amounts.forEach((amount, i) => {
+      const limit = state.goals[goalCats[i].id];
+      let cls = '';
+      if (amount > 0 && limit) {
+        const p = amount / limit;
+        cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
+      }
+      const display = amount > 0 ? fmtCompact(amount) : (isFuture ? '—' : '0€');
+      html += `<td class="gcell-amount ${cls}">${display}</td>`;
+    });
+
+    // Cellule total
+    const totalDisplay = totalSpent > 0 ? fmtCompact(totalSpent) : (isFuture ? '—' : '0€');
+    const barWidth     = totalGoal > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
+    html += `<td class="gcell-total">
+      <div class="gcell-total-inner">
+        <span class="${totalCls}">${totalDisplay}</span>
+        ${totalGoal > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
+      </div>
+    </td>`;
+    html += `</tr>`;
+  }
+
+  html += `</tbody></table></div>`;
   container.innerHTML = html;
 
+  // ── Événements ────────────────────────────────────────────────────────────
   container.querySelectorAll('.btn-set-goal').forEach(btn => {
     btn.addEventListener('click', () => {
       state.editingGoal = btn.dataset.cat;
       renderGoals();
-      const input = document.getElementById(`goal-input-${btn.dataset.cat}`);
-      if (input) { input.focus(); input.select(); }
+      const inp = document.getElementById(`goal-input-${btn.dataset.cat}`);
+      if (inp) { inp.focus(); inp.select(); }
     });
   });
-
-  container.querySelectorAll('.btn-del-goal').forEach(btn => {
-    btn.addEventListener('click', () => deleteGoal(btn.dataset.cat));
-  });
-
   container.querySelectorAll('.btn-goal-confirm').forEach(btn => {
     btn.addEventListener('click', () => saveGoal(btn.dataset.cat));
   });
-
   container.querySelectorAll('.btn-goal-cancel').forEach(btn => {
     btn.addEventListener('click', () => { state.editingGoal = null; renderGoals(); });
   });
-
   container.querySelectorAll('.goal-edit-input').forEach(input => {
     input.addEventListener('keydown', e => {
       const cat = input.closest('[data-cat]').dataset.cat;
-      if (e.key === 'Enter') saveGoal(cat);
+      if (e.key === 'Enter')  saveGoal(cat);
       if (e.key === 'Escape') { state.editingGoal = null; renderGoals(); }
     });
   });
@@ -1102,12 +1116,17 @@ async function saveGoal(category) {
   const input = document.getElementById(`goal-input-${category}`);
   if (!input) return;
   const amount = parseAmount(input.value);
-  if (!amount) { input.focus(); return; }
+
+  state.editingGoal = null;
+  if (!amount) {
+    delete state.goals[category];
+    renderGoals();
+    try { await GoalDB.remove(category); } catch { showToast('Erreur lors de la suppression'); }
+    return;
+  }
 
   state.goals[category] = amount;
-  state.editingGoal = null;
   renderGoals();
-
   try {
     await GoalDB.save(category, amount);
   } catch {

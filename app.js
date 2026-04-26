@@ -7,6 +7,7 @@
 const STORAGE_KEY   = 'expense-calendar-data-v1';
 const RECURRING_KEY = 'expense-calendar-recurring-v1';
 const GOALS_KEY     = 'expense-calendar-goals-v1';
+const AUTH_KEY      = 'expense-calendar-auth-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -47,12 +48,19 @@ const IS_DEPLOYED = (
   window.location.hostname !== '127.0.0.1'
 );
 
+function apiFetch(url, options = {}) {
+  const token = sessionStorage.getItem(AUTH_KEY);
+  if (!token) return fetch(url, options);
+  const headers = { ...(options.headers || {}), 'x-auth-token': token };
+  return fetch(url, { ...options, headers });
+}
+
 const DB = {
   async load() {
     if (!IS_DEPLOYED) {
       return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     }
-    const res = await fetch('/api/expenses');
+    const res = await apiFetch('/api/expenses');
     if (!res.ok) throw new Error('Impossible de charger les données');
     return res.json();
   },
@@ -62,7 +70,7 @@ const DB = {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
       return;
     }
-    const res = await fetch('/api/expenses', {
+    const res = await apiFetch('/api/expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(expense),
@@ -75,7 +83,7 @@ const DB = {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
       return;
     }
-    const res = await fetch('/api/expenses', {
+    const res = await apiFetch('/api/expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(expenses),
@@ -88,7 +96,7 @@ const DB = {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
       return;
     }
-    const res = await fetch(`/api/expenses?id=${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`/api/expenses?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
     if (!res.ok) throw new Error('Suppression échouée');
@@ -100,7 +108,7 @@ const RDB = {
     if (!IS_DEPLOYED) {
       return JSON.parse(localStorage.getItem(RECURRING_KEY) || '[]');
     }
-    const res = await fetch('/api/recurring');
+    const res = await apiFetch('/api/recurring');
     if (!res.ok) throw new Error('Impossible de charger les récurrences');
     return res.json();
   },
@@ -110,7 +118,7 @@ const RDB = {
       localStorage.setItem(RECURRING_KEY, JSON.stringify(state.recurring));
       return;
     }
-    const res = await fetch('/api/recurring', {
+    const res = await apiFetch('/api/recurring', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
@@ -123,7 +131,7 @@ const RDB = {
       localStorage.setItem(RECURRING_KEY, JSON.stringify(state.recurring));
       return;
     }
-    const res = await fetch(`/api/recurring?id=${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`/api/recurring?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
     if (!res.ok) throw new Error('Suppression échouée');
@@ -135,7 +143,7 @@ const GoalDB = {
     if (!IS_DEPLOYED) {
       return JSON.parse(localStorage.getItem(GOALS_KEY) || '{}');
     }
-    const res = await fetch('/api/goals');
+    const res = await apiFetch('/api/goals');
     if (!res.ok) throw new Error('Impossible de charger les objectifs');
     return res.json();
   },
@@ -145,7 +153,7 @@ const GoalDB = {
       localStorage.setItem(GOALS_KEY, JSON.stringify(state.goals));
       return;
     }
-    const res = await fetch('/api/goals', {
+    const res = await apiFetch('/api/goals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category, amount }),
@@ -158,7 +166,7 @@ const GoalDB = {
       localStorage.setItem(GOALS_KEY, JSON.stringify(state.goals));
       return;
     }
-    const res = await fetch(`/api/goals?category=${encodeURIComponent(category)}`, {
+    const res = await apiFetch(`/api/goals?category=${encodeURIComponent(category)}`, {
       method: 'DELETE',
     });
     if (!res.ok) throw new Error('Suppression échouée');
@@ -1270,7 +1278,22 @@ async function init() {
   });
   document.getElementById('btn-add-recurring').addEventListener('click', () => openRecurringModal());
 
-  // Charger les données (DB ou localStorage) en parallèle
+  // Auth overlay
+  document.getElementById('btn-auth-submit').addEventListener('click', submitPin);
+  document.getElementById('auth-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitPin();
+  });
+
+  // Auth gate (production uniquement)
+  if (IS_DEPLOYED && !sessionStorage.getItem(AUTH_KEY)) {
+    document.getElementById('auth-overlay').classList.remove('hidden');
+    return; // le chargement des données sera déclenché après auth réussie
+  }
+
+  await loadAndRender();
+}
+
+async function loadAndRender() {
   const overlay = document.getElementById('loading-overlay');
   overlay.classList.remove('hidden');
   try {
@@ -1283,8 +1306,41 @@ async function init() {
   } finally {
     overlay.classList.add('hidden');
   }
-
   renderCalendar();
+}
+
+async function submitPin() {
+  const input = document.getElementById('auth-input');
+  const error = document.getElementById('auth-error');
+  const btn   = document.getElementById('btn-auth-submit');
+  const pin   = input.value.trim();
+  if (!pin) { input.focus(); return; }
+
+  btn.disabled = true;
+  error.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (res.ok) {
+      const { token } = await res.json();
+      sessionStorage.setItem(AUTH_KEY, token);
+      document.getElementById('auth-overlay').classList.add('hidden');
+      await loadAndRender();
+    } else {
+      error.classList.remove('hidden');
+      input.value = '';
+      input.focus();
+    }
+  } catch {
+    error.textContent = 'Erreur de connexion. Réessayez.';
+    error.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

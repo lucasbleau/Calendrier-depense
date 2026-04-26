@@ -10,18 +10,18 @@ Visualiser, saisir et analyser les dépenses et revenus quotidiens via une inter
 
 ## Spécifications fonctionnelles
 
-### Vue calendrier
+### Vue Calendrier
 
 - Grille mensuelle classique (semaine commençant lundi)
 - Navigation : flèches précédent/suivant + sélecteurs mois/année
 - Chaque cellule jour affiche :
   - Numéro du jour
-  - Total dépenses du jour (rouge)
-  - Total revenus du jour (vert)
+  - Total dépenses du jour (rouge) + total revenus (vert)
+  - Récurrences du jour en italique avec ↺ (non comptées dans les totaux)
   - Indicateur si plusieurs opérations
 - Code couleur d'intensité : la cellule s'assombrit proportionnellement au montant dépensé (max du mois = référence)
 - Mise en évidence du jour courant
-- Clic sur un jour → panneau détail avec liste complète des opérations + bouton ajouter/supprimer
+- Clic sur un jour → panneau détail : liste des opérations + section récurrences du jour + bouton ajouter/supprimer
 
 ### Saisie des dépenses
 
@@ -29,22 +29,45 @@ Deux modes complémentaires :
 
 1. **Saisie manuelle** via modal au clic sur un jour
    - Champs : libellé, montant, catégorie, type (dépense/revenu)
+   - Auto-suggestion catégorie sur blur du champ libellé
 2. **Import CSV** avec détection automatique du format
    - Compatible Crédit Mutuel et Revolut
    - Auto-détection des colonnes (date, libellé, montant, débit/crédit)
-   - Catégorisation automatique par mots-clés (Carrefour → Courses, Total → Essence, Netflix → Abonnements, etc.)
+   - Catégorisation automatique par mots-clés
 
 ### Catégories
 
 Liste fixe avec code couleur dédié :
 Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Santé, Revenus, Autre.
 
-### Vue statistiques
+### Vue Statistiques
 
 - KPI mois courant : total dépenses, total revenus, solde, comparaison % vs mois précédent
 - KPI année : total dépenses, total revenus, solde annuel
 - Bar chart 12 mois (dépenses/revenus de l'année courante)
 - Donut de répartition par catégorie pour le mois courant + liste détaillée avec pourcentages
+
+### Vue Récurrences
+
+- Créer/modifier/supprimer des tâches récurrentes (loyer, Netflix, salaire...)
+- Chaque tâche : libellé, montant, type, catégorie, jours du mois (ex : 1er et 15)
+- Les récurrences apparaissent dans le calendrier comme rappels (↺ montant) mais ne sont **pas** comptées dans les statistiques tant qu'elles ne sont pas saisies manuellement
+- Depuis le panneau jour : bouton `+` pour créer une opération pré-remplie depuis la récurrence
+
+### Vue Objectifs
+
+- Limites de dépenses mensuelles par catégorie
+- Barre de progression par catégorie : verte < 80 %, orange 80–100 %, rouge au-delà
+- Édition inline (clic ✏) — pas de modal séparé
+- Section "Prévision mois prochain" : total attendu par catégorie d'après les récurrences configurées
+
+### Authentification
+
+- Overlay de code d'accès (PIN) à l'ouverture du site en production
+- PIN vérifié côté serveur (`APP_PIN` env var) — jamais exposé dans le JS client
+- Token renvoyé par `/api/auth` et stocké en `sessionStorage` ; envoyé via `x-auth-token` sur toutes les requêtes API
+- Toutes les routes API vérifient ce token (`APP_TOKEN` env var) → 401 si absent/invalide
+- En local (`file://` ou `localhost`) : aucune auth, l'overlay n'est jamais affiché
 
 ## Spécifications techniques
 
@@ -59,15 +82,18 @@ Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Santé, Revenus, Autre.
 ### Fichiers
 
 ```
-index.html   — structure HTML + liens scripts/styles
-style.css    — design complet (palette terreuse, responsive)
-app.js       — logique applicative complète
+index.html      — structure HTML + liens scripts/styles
+style.css       — design complet (palette terreuse, responsive)
+app.js          — logique applicative complète
+package.json    — dépendance pg + engines.node 20.x
+schema.sql      — migrations à exécuter une fois dans la base Postgres
+.gitignore
+api/
+  auth.js       — POST /api/auth : vérifie APP_PIN, renvoie APP_TOKEN
+  expenses.js   — GET / POST / DELETE : table expenses
+  recurring.js  — GET / POST / DELETE : table recurring_tasks
+  goals.js      — GET / POST / DELETE : table goals
 ```
-
-### Stack originale (référence, non implémentée)
-
-La spec initiale prévoyait React + Tailwind + Recharts + Lucide-react.
-Migrer vers React/Vite reste possible : toute la logique métier (`parseCSV`, `guessCategory`, `fmtEUR`, `sumByType`, etc.) est extraite en fonctions pures facilement importables.
 
 ### Modèle de données
 
@@ -75,46 +101,71 @@ Migrer vers React/Vite reste possible : toute la logique métier (`parseCSV`, `g
 type Expense = {
   id: string;            // unique, généré côté client
   date: string;          // YYYY-MM-DD
-  label: string;         // libellé libre
+  label: string;
   amount: number;        // valeur absolue, toujours positive
   type: 'depense' | 'revenu';
   category: string;      // id de catégorie (cf. liste fixe)
 };
-```
 
-Toutes les données sont stockées sous forme de tableau `Expense[]` sérialisé en JSON dans `localStorage`.
+type RecurringTask = {
+  id: string;
+  label: string;
+  amount: number;
+  type: 'depense' | 'revenu';
+  category: string;
+  days: number[];        // ex: [1, 15] = 1er et 15 du mois
+};
+
+type Goals = Record<string, number>; // category → limite mensuelle en €
+```
 
 ### Conventions UI
 
 - Localisation FR (mois, jours, libellés)
 - Format monétaire : `Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' })` via `fmtEUR()`
-- Format compact pour l'affichage dans les cellules : `123€`, `1.2k€` via `fmtCompact()`
+- Format compact pour les cellules calendrier : `123,50€`, `1,2k€` via `fmtCompact()` (aucun arrondi)
 - Parsing des nombres tolérant : virgule ou point décimal, symbole € optionnel, via `parseAmount()`
 - Parsing des dates tolérant : `DD/MM/YYYY`, `YYYY-MM-DD`, séparateurs `/`, `-`, `.` via `parseDate()`
 
 ### Persistance
 
-Deux modes selon le contexte d'exécution (détectés automatiquement dans `app.js`) :
+Deux modes détectés automatiquement (`IS_DEPLOYED` dans `app.js`) :
 
-- **Local (`file://` ou `localhost`)** : `localStorage` (clé `expense-calendar-data-v1`) — aucune dépendance réseau
-- **Déployé sur Vercel** : appels `fetch` vers `/api/expenses` → base Postgres via `pg`
+- **Local (`file://` ou `localhost`)** : `localStorage` — aucune dépendance réseau, aucune auth
+- **Déployé sur Vercel** : appels via `apiFetch()` → `/api/*` → Postgres via `pg`
 
-La base est une **Prisma Postgres** accessible via `POSTGRES_URL` (format `postgresql://...@*.db.prisma.io:5432/postgres?sslmode=require`). La serverless function `api/expenses.js` utilise un `Pool` pg avec `ssl: { rejectUnauthorized: false }`.
+`apiFetch()` injecte automatiquement le header `x-auth-token` sur toutes les requêtes API.
 
-**Conséquences :**
-- En production, les données sont persistantes et accessibles depuis n'importe quel navigateur/device.
-- La table doit exister avant le premier usage (cf. `schema.sql`).
+La base est une **Prisma Postgres** (`db.prisma.io:5432`) accessible via `POSTGRES_URL`. Le driver `pg` est utilisé avec `ssl: { rejectUnauthorized: false }`.
+
+### Tables SQL (cf. `schema.sql`)
+
+```sql
+expenses        — id, date, label, amount, type, category, created_at
+recurring_tasks — id, label, amount, type, category, days (JSON), created_at
+goals           — category (PK), amount, updated_at
+```
 
 ## Déploiement
 
-### Architecture déployée
+### Architecture
 
 ```
-Browser → /api/expenses (Vercel Serverless Function) → Vercel Postgres (Neon)
+Browser → /api/auth         → vérifie APP_PIN, renvoie APP_TOKEN
+Browser → /api/expenses     → Postgres (expenses)       ← token requis
+Browser → /api/recurring    → Postgres (recurring_tasks) ← token requis
+Browser → /api/goals        → Postgres (goals)           ← token requis
 ```
 
-- En local (`file://` ou `localhost`) : l'app utilise automatiquement `localStorage`
-- Déployé sur Vercel : l'app appelle `/api/expenses` → base Postgres
+### Variables d'environnement Vercel
+
+| Variable      | Description                                                |
+|---------------|------------------------------------------------------------|
+| `POSTGRES_URL` | URL de connexion Postgres (`postgresql://...`)            |
+| `APP_PIN`     | Code saisi par l'utilisateur pour accéder au site         |
+| `APP_TOKEN`   | Secret interne envoyé avec chaque requête API (générer une chaîne aléatoire longue) |
+
+> Si `APP_PIN` / `APP_TOKEN` ne sont pas définis : l'auth est désactivée (tout token accepté). Définir les deux pour activer la protection.
 
 ### Structure du projet
 
@@ -123,81 +174,53 @@ Browser → /api/expenses (Vercel Serverless Function) → Vercel Postgres (Neon
 ├── index.html
 ├── style.css
 ├── app.js
-├── package.json          ← dépendance pg + engines.node 20.x
-├── schema.sql            ← migration à exécuter une fois dans la base Postgres
+├── package.json
+├── schema.sql
 ├── .gitignore
 └── api/
-    └── expenses.js       ← serverless function (GET / POST / DELETE) via pg
+    ├── auth.js
+    ├── expenses.js
+    ├── recurring.js
+    └── goals.js
 ```
 
-### Procédure de déploiement (à faire une fois)
+### Procédure de déploiement initial
 
-**1. Créer le repo GitHub**
-```bash
-git init
-git add .
-git commit -m "init"
-git remote add origin https://github.com/TON_USER/calendrier-budget.git
-git push -u origin main
-```
+1. **Créer le repo GitHub** et pousser le code
+2. **Importer sur Vercel** — framework "Other", déployer
+3. **Ajouter une base Postgres** (Vercel Storage → Postgres Neon ou Prisma Postgres externe)
+   - Définir `POSTGRES_URL` dans les env vars Vercel
+4. **Créer les tables** — coller `schema.sql` dans l'onglet Query de la base
+5. **Définir `APP_PIN` et `APP_TOKEN`** dans les env vars Vercel (Settings → Environment Variables)
+6. **Redéployer** (`git push` ou bouton Redeploy)
 
-**2. Importer sur Vercel**
-- Aller sur vercel.com → "Add New Project" → importer le repo GitHub
-- Framework : laisser sur "Other"
-- Cliquer Deploy (le premier déploiement sera sans base, c'est normal)
-
-**3. Ajouter une base Postgres**
-- Option A (recommandée) : Vercel Dashboard → Storage → Create Database → Postgres (Neon) → nommer `calendrier-budget`
-- Option B : Prisma Postgres ou autre Postgres hébergé — coller l'URL dans les env vars Vercel
-- L'env var attendue : `POSTGRES_URL` (format `postgresql://user:pass@host:5432/db?sslmode=require`)
-
-**4. Créer la table**
-- Dans Vercel → Storage → la base → onglet "Query" (ou via psql/DBeaver)
-- Copier-coller le contenu de `schema.sql` et exécuter
-
-> **Note :** le repo GitHub doit être **public** ou le plan Vercel doit être **Pro** pour que le déploiement continu fonctionne sur un compte Équipe Vercel Hobby.
-
-**5. Redéployer**
-```bash
-git commit --allow-empty -m "redeploy with db"
-git push
-```
-Ou cliquer "Redeploy" dans le dashboard Vercel.
-
-**Pour les déploiements suivants :** un simple `git push` suffit, Vercel redéploie automatiquement.
+> Le repo doit être **public** sur GitHub pour que le déploiement continu fonctionne sur un plan Vercel Hobby (limitation des comptes Équipe).
 
 ## Roadmap / évolutions possibles
 
-À discuter selon les besoins :
-
-- **Persistance serveur** : passer de `localStorage` à une vraie base (SQLite via Prisma ou Supabase) pour synchro multi-device
 - **Vue heatmap annuelle** style GitHub contributions
-- **Budgets par catégorie** avec alertes de dépassement
 - **Export** : CSV, Excel, PDF mensuel récapitulatif
-- **Récurrences** : marquer un loyer ou un abonnement comme récurrent pour pré-remplir les mois suivants
-- **Dépenses prévisionnelles** : distinction entre dépenses passées et planifiées
+- **Dépenses prévisionnelles** : distinction dépenses passées / planifiées
 - **Filtres** : par catégorie, par plage de montants, par mots-clés
-- **Multi-comptes** : ventiler entre compte courant, PEA Trade Republic, etc.
-- **Règles de catégorisation** : permettre à l'utilisateur de définir ses propres mappings mot-clé → catégorie
+- **Multi-comptes** : ventiler entre compte courant, PEA, etc.
+- **Règles de catégorisation** : mappings mot-clé → catégorie personnalisables
 - **PWA** : installation mobile, fonctionnement offline
-- **Tests** : Vitest + React Testing Library pour la logique de parsing CSV et les calculs d'agrégation
+- **Tests** : Vitest pour la logique de parsing CSV et les calculs d'agrégation
 
 ## Conventions de code à respecter
 
-- TypeScript préféré pour toute évolution hors prototype
-- Composants fonctionnels uniquement, hooks
-- Pas d'état global lourd (Redux, Zustand) tant que le besoin n'est pas avéré ; `useState` + `useMemo` suffisent
-- Logique métier (parsing CSV, catégorisation, agrégations) extraite dans des fonctions pures testables
-- Pas de dépendance à une UI lib lourde (Material UI, Ant Design) — Tailwind + composants maison
+- Logique métier extraite en fonctions pures (`parseCSV`, `guessCategory`, `fmtEUR`, `sumByType`, etc.)
 - Accessibilité : labels explicites, navigation clavier sur les boutons et la grille calendrier
-- Format monétaire et dates toujours via les helpers (`fmtEUR`, `parseDate`, `parseAmount`) — ne jamais réimplémenter inline
+- Format monétaire et dates toujours via les helpers — ne jamais réimplémenter inline
+- Pas de commentaires sauf si le WHY est non-évident
+- Dual-mode storage : toujours vérifier `IS_DEPLOYED` avant tout appel réseau ou accès localStorage
 
 ## Hors scope
 
-- Gestion multi-utilisateur / authentification
+- Gestion multi-utilisateur (authentification forte, sessions, rôles)
 - Conseils financiers automatisés ou prévisions IA
-- Intégration directe avec les API bancaires (DSP2, Bridge, Powens) — l'import CSV reste le canal d'entrée
-- Gestion d'investissements (PEA, actions, crypto) — c'est un suivi de cash-flow quotidien, pas un outil de trading
+- Intégration directe avec les API bancaires (DSP2, Bridge, Powens)
+- Gestion d'investissements (PEA, actions, crypto)
 
 ## Contexte utilisateur
 

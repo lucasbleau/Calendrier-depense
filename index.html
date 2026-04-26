@@ -245,6 +245,20 @@
     <div class="spinner"></div>
   </div>
 
+  <!-- Auth overlay -->
+  <div id="auth-overlay" class="hidden" role="dialog" aria-modal="true" aria-label="Accès protégé">
+    <div class="auth-box">
+      <div class="auth-logo">Calendrier <span>Budget</span></div>
+      <p class="auth-subtitle">Accès privé — entrez votre code</p>
+      <div class="field">
+        <label for="auth-input">Code d'accès</label>
+        <input type="password" id="auth-input" placeholder="••••" autocomplete="current-password" />
+      </div>
+      <button class="btn-primary auth-submit-btn" id="btn-auth-submit">Entrer</button>
+      <p class="auth-error hidden" id="auth-error">Code incorrect. Réessayez.</p>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="app.js"></script>
 </body>

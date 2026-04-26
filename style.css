@@ -927,3 +927,244 @@ body {
   .stats-kpi-row { grid-template-columns: 1fr; }
   .kpi-value { font-size: 1.2rem; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Indicateur récurrence dans la cellule calendrier
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.day-recurring {
+  font-size: 10px;
+  color: var(--accent);
+  opacity: 0.75;
+  margin-top: auto;
+  align-self: flex-start;
+  position: relative;
+  line-height: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Section récurrences dans le panneau jour
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.panel-recurring {
+  border-top: 1px solid var(--border-light);
+  padding: 0.5rem 0 0.25rem;
+}
+
+.panel-recurring-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  padding: 0 1.1rem 0.4rem;
+}
+
+.panel-recur-item {
+  display: grid;
+  grid-template-columns: 8px 1fr auto auto auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 1.1rem;
+  transition: background 0.1s;
+}
+.panel-recur-item:hover { background: var(--accent-faint); }
+
+.btn-use-recur {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.btn-use-recur:hover {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Vue Récurrences
+   ───────────────────────────────────────────────────────────────────────────── */
+
+#view-recurring {
+  padding: 1.5rem;
+  overflow-y: auto;
+  height: calc(100vh - var(--header-h));
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.recurring-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.recurring-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.recurring-subtitle {
+  font-size: 12px;
+  color: var(--text-3);
+  max-width: 520px;
+  line-height: 1.5;
+}
+
+.recurring-empty {
+  text-align: center;
+  color: var(--text-3);
+  font-size: 14px;
+  font-style: italic;
+  padding: 3rem 1rem;
+  line-height: 1.7;
+}
+
+#recurring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.recurring-card {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr auto auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.recurring-card:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+
+.recurring-icon {
+  font-size: 1rem;
+  color: var(--accent);
+  opacity: 0.8;
+  text-align: center;
+}
+
+.recurring-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recurring-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recurring-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.recurring-amount {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.recurring-amount.depense { color: var(--depense); }
+.recurring-amount.revenu  { color: var(--revenu); }
+
+.btn-edit-recur {
+  font-size: 13px;
+  color: var(--text-3);
+  padding: 0.25rem 0.4rem;
+}
+.btn-edit-recur:hover { color: var(--accent); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Modal récurrence — sélecteur de jours
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.modal-box--wide {
+  max-width: 500px;
+}
+
+.field-hint {
+  font-size: 10px;
+  color: var(--text-3);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+
+.day-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.day-btn {
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.day-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-faint);
+}
+.day-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  #view-recurring { padding: 1rem; }
+  .recurring-header { flex-direction: column; }
+  .recurring-card { grid-template-columns: 1.5rem 1fr auto auto; }
+  .recurring-card .btn-edit-recur { display: none; }
+  .modal-box--wide { max-width: 100%; }
+  .day-picker { grid-template-columns: repeat(7, 1fr); gap: 4px; }
+}

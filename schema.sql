@@ -11,3 +11,13 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses (date);
+
+CREATE TABLE IF NOT EXISTS recurring_tasks (
+  id          TEXT            PRIMARY KEY,
+  label       TEXT            NOT NULL,
+  amount      NUMERIC(10, 2)  NOT NULL,
+  type        TEXT            NOT NULL,
+  category    TEXT            NOT NULL,
+  days        TEXT            NOT NULL,
+  created_at  TIMESTAMPTZ     DEFAULT NOW()
+);

@@ -18,6 +18,7 @@
     <div class="view-tabs" role="tablist">
       <button id="btn-view-calendar" class="active" role="tab" aria-selected="true">Calendrier</button>
       <button id="btn-view-stats" role="tab" aria-selected="false">Statistiques</button>
+      <button id="btn-view-recurring" role="tab" aria-selected="false">Récurrences</button>
     </div>
 
     <div class="header-actions">
@@ -104,6 +105,21 @@
 
   </div>
 
+  <!-- ─── Vue Récurrences ─────────────────────────────────────────────── -->
+  <div id="view-recurring" class="hidden">
+
+    <div class="recurring-header">
+      <div>
+        <h2 class="recurring-title">Récurrences mensuelles</h2>
+        <p class="recurring-subtitle">Dépenses et revenus qui se répètent chaque mois. Ils apparaissent dans le calendrier comme rappels (↺) mais ne sont pas comptés dans les statistiques tant qu'ils ne sont pas saisis manuellement.</p>
+      </div>
+      <button class="btn-primary" id="btn-add-recurring">+ Nouvelle récurrence</button>
+    </div>
+
+    <div id="recurring-list"></div>
+
+  </div>
+
   <!-- ─── Modal : Nouvelle opération ─────────────────────────────────── -->
   <div id="modal-add" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-add-title">
     <div class="modal-box">
@@ -163,6 +179,48 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="btn-cancel-import">Annuler</button>
         <button class="btn-primary" id="btn-confirm-import" disabled>Importer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal : Récurrence ──────────────────────────────────────────── -->
+  <div id="modal-recurring" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-recurring-title">
+    <div class="modal-box modal-box--wide">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-recurring-title">Nouvelle récurrence</h2>
+        <button class="btn-icon" id="modal-recurring-close" aria-label="Fermer">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="recur-id" />
+        <div class="field">
+          <label for="recur-label">Libellé</label>
+          <input type="text" id="recur-label" placeholder="Ex : Loyer, Netflix, Salaire…" autocomplete="off" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="recur-amount">Montant (€)</label>
+            <input type="text" id="recur-amount" placeholder="0,00" inputmode="decimal" />
+          </div>
+          <div class="field">
+            <label for="recur-type">Type</label>
+            <select id="recur-type">
+              <option value="depense">Dépense</option>
+              <option value="revenu">Revenu</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="recur-category">Catégorie</label>
+          <select id="recur-category"></select>
+        </div>
+        <div class="field">
+          <label>Jours du mois <span class="field-hint">(plusieurs possibles)</span></label>
+          <div class="day-picker" id="day-picker"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-recurring">Annuler</button>
+        <button class="btn-primary" id="btn-save-recurring">Enregistrer</button>
       </div>
     </div>
   </div>

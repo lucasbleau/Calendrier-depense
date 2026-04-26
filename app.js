@@ -4,7 +4,8 @@
 // Constantes
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'expense-calendar-data-v1';
+const STORAGE_KEY   = 'expense-calendar-data-v1';
+const RECURRING_KEY = 'expense-calendar-recurring-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -93,6 +94,41 @@ const DB = {
   },
 };
 
+const RDB = {
+  async load() {
+    if (!IS_DEPLOYED) {
+      return JSON.parse(localStorage.getItem(RECURRING_KEY) || '[]');
+    }
+    const res = await fetch('/api/recurring');
+    if (!res.ok) throw new Error('Impossible de charger les récurrences');
+    return res.json();
+  },
+
+  async save(task) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(RECURRING_KEY, JSON.stringify(state.recurring));
+      return;
+    }
+    const res = await fetch('/api/recurring', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task),
+    });
+    if (!res.ok) throw new Error('Sauvegarde échouée');
+  },
+
+  async remove(id) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(RECURRING_KEY, JSON.stringify(state.recurring));
+      return;
+    }
+    const res = await fetch(`/api/recurring?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Suppression échouée');
+  },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +178,19 @@ function getCat(id) {
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function fmtDays(days) {
+  const sorted = [...days].sort((a, b) => a - b);
+  return sorted.map(d => d + (d === 1 ? 'er' : '')).join(', ') + ' du mois';
+}
+
+// Retourne les récurrences actives pour un jour donné (en tenant compte des mois courts)
+function getRecurringForDay(year, month, day) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  return state.recurring.filter(task =>
+    task.days.some(d => Math.min(d, daysInMonth) === day)
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -226,11 +275,14 @@ const today = new Date();
 
 const state = {
   expenses:     [],
+  recurring:    [],
   view:         'calendar',
   currentYear:  today.getFullYear(),
   currentMonth: today.getMonth(),
   selectedDate: null,
 };
+
+let modalRecurDays = [];  // jours sélectionnés dans le modal récurrence
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agrégations
@@ -303,6 +355,7 @@ function renderCalendar() {
     const data    = dayMap[dateStr];
     const isToday = dateStr === now;
     const isSel   = dateStr === selectedDate;
+    const recurItems = getRecurringForDay(currentYear, currentMonth, day);
 
     const el = document.createElement('div');
     el.className = ['cal-day', isToday && 'today', isSel && 'selected'].filter(Boolean).join(' ');
@@ -318,6 +371,9 @@ function renderCalendar() {
       if (data.depenses > 0) html += `<span class="day-amount depense">-${fmtCompact(data.depenses)}</span>`;
       if (data.revenus  > 0) html += `<span class="day-amount revenu">+${fmtCompact(data.revenus)}</span>`;
       if (data.count    > 1) html += `<span class="day-count">${data.count} op.</span>`;
+    }
+    if (recurItems.length > 0) {
+      html += `<span class="day-recurring" title="${recurItems.map(r => r.label).join(', ')}">↺</span>`;
     }
 
     el.innerHTML = html;
@@ -359,6 +415,7 @@ function renderDayPanel() {
 
   const items = getDayData(dateStr);
   const { depenses, revenus } = sumByType(items);
+  const recurItems = getRecurringForDay(year, month - 1, day);
 
   let html = `
     <div class="panel-header">
@@ -368,7 +425,7 @@ function renderDayPanel() {
     <div class="panel-summary">
       ${depenses > 0 ? `<span class="summary-depense">Dépenses : ${fmtEUR(depenses)}</span>` : ''}
       ${revenus  > 0 ? `<span class="summary-revenu">Revenus : ${fmtEUR(revenus)}</span>`    : ''}
-      ${items.length === 0 ? '<span class="summary-empty">Aucune opération enregistrée.</span>' : ''}
+      ${items.length === 0 && recurItems.length === 0 ? '<span class="summary-empty">Aucune opération enregistrée.</span>' : ''}
     </div>
     <ul class="operations-list">
   `;
@@ -386,21 +443,45 @@ function renderDayPanel() {
     `;
   }
 
-  html += `</ul>
-    <button class="btn-add-op" id="btn-add-operation">+ Ajouter une opération</button>
-  `;
+  html += `</ul>`;
+
+  if (recurItems.length > 0) {
+    html += `<div class="panel-recurring">
+      <div class="panel-recurring-title">↺ Récurrences du jour</div>`;
+    for (const r of recurItems) {
+      const cat = getCat(r.category);
+      html += `
+        <div class="panel-recur-item" data-recur-id="${r.id}">
+          <span class="op-dot" style="background:${cat.color}"></span>
+          <span class="op-label" title="${r.label}">${r.label}</span>
+          <span class="op-cat">${cat.label}</span>
+          <span class="op-amount ${r.type}">${r.type === 'depense' ? '-' : '+'}${fmtEUR(r.amount)}</span>
+          <button class="btn-use-recur" data-recur-id="${r.id}" title="Ajouter comme opération">+</button>
+        </div>
+      `;
+    }
+    html += `</div>`;
+  }
+
+  html += `<button class="btn-add-op" id="btn-add-operation">+ Ajouter une opération</button>`;
 
   panel.innerHTML = html;
 
   document.getElementById('close-panel').addEventListener('click', closePanel);
   document.getElementById('btn-add-operation').addEventListener('click', () => openAddModal(dateStr));
 
+  panel.querySelectorAll('.btn-use-recur').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const task = state.recurring.find(r => r.id === btn.dataset.recurId);
+      if (task) openAddModal(dateStr, task);
+    });
+  });
+
   panel.querySelectorAll('.op-delete').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const snapshot = [...state.expenses];
 
-      // Mise à jour optimiste
       state.expenses = state.expenses.filter(e => e.id !== id);
       renderCalendar();
       renderDayPanel();
@@ -568,15 +649,149 @@ function renderStats() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Rendu : Vue Récurrences
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderRecurring() {
+  const container = document.getElementById('recurring-list');
+
+  if (state.recurring.length === 0) {
+    container.innerHTML = `<p class="recurring-empty">Aucune récurrence configurée.<br>Cliquez sur « + Nouvelle récurrence » pour commencer.</p>`;
+    return;
+  }
+
+  container.innerHTML = state.recurring.map(task => {
+    const cat = getCat(task.category);
+    return `
+      <div class="recurring-card">
+        <span class="recurring-icon">↺</span>
+        <div class="recurring-info">
+          <span class="recurring-label">${task.label}</span>
+          <span class="recurring-meta">
+            <span class="rc-dot" style="background:${cat.color}"></span>
+            ${cat.label} &middot; ${fmtDays(task.days)}
+          </span>
+        </div>
+        <span class="recurring-amount ${task.type}">${task.type === 'depense' ? '−' : '+'}${fmtEUR(task.amount)}</span>
+        <button class="btn-icon btn-edit-recur" data-id="${task.id}" title="Modifier">✏</button>
+        <button class="btn-icon btn-delete-recur" data-id="${task.id}" title="Supprimer">&#10005;</button>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.btn-edit-recur').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const task = state.recurring.find(t => t.id === btn.dataset.id);
+      if (task) openRecurringModal(task);
+    });
+  });
+
+  container.querySelectorAll('.btn-delete-recur').forEach(btn => {
+    btn.addEventListener('click', () => deleteRecurring(btn.dataset.id));
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modal : Récurrence (créer / modifier)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openRecurringModal(task = null) {
+  document.getElementById('recur-id').value       = task?.id || '';
+  document.getElementById('recur-label').value    = task?.label || '';
+  document.getElementById('recur-amount').value   = task?.amount || '';
+  document.getElementById('recur-type').value     = task?.type || 'depense';
+  document.getElementById('recur-category').value = task?.category || 'autre';
+  document.getElementById('modal-recurring-title').textContent = task ? 'Modifier la récurrence' : 'Nouvelle récurrence';
+
+  modalRecurDays = task ? [...task.days] : [];
+  renderDayPicker();
+
+  document.getElementById('modal-recurring').classList.remove('hidden');
+  document.getElementById('recur-label').focus();
+}
+
+function closeRecurringModal() {
+  document.getElementById('modal-recurring').classList.add('hidden');
+  modalRecurDays = [];
+}
+
+function renderDayPicker() {
+  const picker = document.getElementById('day-picker');
+  picker.innerHTML = '';
+  for (let d = 1; d <= 31; d++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'day-btn' + (modalRecurDays.includes(d) ? ' active' : '');
+    btn.textContent = d;
+    btn.addEventListener('click', () => toggleRecurDay(d));
+    picker.appendChild(btn);
+  }
+}
+
+function toggleRecurDay(d) {
+  if (modalRecurDays.includes(d)) {
+    modalRecurDays = modalRecurDays.filter(x => x !== d);
+  } else {
+    modalRecurDays = [...modalRecurDays, d].sort((a, b) => a - b);
+  }
+  renderDayPicker();
+}
+
+async function saveRecurring() {
+  const id       = document.getElementById('recur-id').value || generateId();
+  const label    = document.getElementById('recur-label').value.trim();
+  const amount   = parseAmount(document.getElementById('recur-amount').value);
+  const type     = document.getElementById('recur-type').value;
+  const category = document.getElementById('recur-category').value;
+  const days     = modalRecurDays;
+
+  if (!label) { document.getElementById('recur-label').focus(); return; }
+  if (!amount) { document.getElementById('recur-amount').focus(); return; }
+  if (days.length === 0) { showToast('Sélectionnez au moins un jour du mois'); return; }
+
+  const task = { id, label, amount, type, category, days };
+
+  const existing = state.recurring.findIndex(t => t.id === id);
+  if (existing >= 0) state.recurring[existing] = task;
+  else state.recurring.push(task);
+
+  closeRecurringModal();
+  renderRecurring();
+  renderCalendar();
+
+  try {
+    await RDB.save(task);
+  } catch {
+    showToast('Erreur lors de la sauvegarde');
+  }
+}
+
+async function deleteRecurring(id) {
+  const snapshot = [...state.recurring];
+  state.recurring = state.recurring.filter(t => t.id !== id);
+  renderRecurring();
+  renderCalendar();
+
+  try {
+    await RDB.remove(id);
+  } catch {
+    state.recurring = snapshot;
+    renderRecurring();
+    renderCalendar();
+    showToast('Erreur lors de la suppression');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Modal : Ajouter une opération
 // ─────────────────────────────────────────────────────────────────────────────
 
-function openAddModal(dateStr) {
+function openAddModal(dateStr, prefill = null) {
   document.getElementById('add-date').value     = dateStr;
-  document.getElementById('add-label').value    = '';
-  document.getElementById('add-amount').value   = '';
-  document.getElementById('add-type').value     = 'depense';
-  document.getElementById('add-category').value = 'autre';
+  document.getElementById('add-label').value    = prefill?.label    || '';
+  document.getElementById('add-amount').value   = prefill?.amount   || '';
+  document.getElementById('add-type').value     = prefill?.type     || 'depense';
+  document.getElementById('add-category').value = prefill?.category || 'autre';
   document.getElementById('modal-add').classList.remove('hidden');
   document.getElementById('add-label').focus();
 }
@@ -599,7 +814,6 @@ async function saveNewExpense() {
 
   const expense = { id: generateId(), date, label, amount, type, category };
 
-  // Mise à jour optimiste
   state.expenses.push(expense);
   closeAddModal();
   renderCalendar();
@@ -681,7 +895,6 @@ async function confirmImport() {
     return;
   }
 
-  // Mise à jour optimiste
   state.expenses.push(...newOps);
   closeImportModal();
   renderCalendar();
@@ -717,14 +930,20 @@ function showToast(msg) {
 
 function setView(view) {
   state.view = view;
-  const isCal = view === 'calendar';
-  document.getElementById('view-calendar').classList.toggle('hidden', !isCal);
-  document.getElementById('view-stats').classList.toggle('hidden', isCal);
-  document.getElementById('btn-view-calendar').classList.toggle('active', isCal);
-  document.getElementById('btn-view-stats').classList.toggle('active', !isCal);
-  document.getElementById('btn-view-calendar').setAttribute('aria-selected', isCal);
-  document.getElementById('btn-view-stats').setAttribute('aria-selected', !isCal);
-  if (!isCal) renderStats();
+  document.getElementById('view-calendar').classList.toggle('hidden', view !== 'calendar');
+  document.getElementById('view-stats').classList.toggle('hidden', view !== 'stats');
+  document.getElementById('view-recurring').classList.toggle('hidden', view !== 'recurring');
+
+  document.getElementById('btn-view-calendar').classList.toggle('active', view === 'calendar');
+  document.getElementById('btn-view-stats').classList.toggle('active', view === 'stats');
+  document.getElementById('btn-view-recurring').classList.toggle('active', view === 'recurring');
+
+  document.getElementById('btn-view-calendar').setAttribute('aria-selected', view === 'calendar');
+  document.getElementById('btn-view-stats').setAttribute('aria-selected', view === 'stats');
+  document.getElementById('btn-view-recurring').setAttribute('aria-selected', view === 'recurring');
+
+  if (view === 'stats') renderStats();
+  if (view === 'recurring') renderRecurring();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -765,12 +984,20 @@ async function init() {
     selYear.appendChild(opt);
   }
 
-  // Catégories
+  // Catégories (modal ajout)
   const catSel = document.getElementById('add-category');
   CATEGORIES.forEach(cat => {
     const opt = document.createElement('option');
     opt.value = cat.id; opt.textContent = cat.label;
     catSel.appendChild(opt);
+  });
+
+  // Catégories (modal récurrence)
+  const recurCatSel = document.getElementById('recur-category');
+  CATEGORIES.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat.id; opt.textContent = cat.label;
+    recurCatSel.appendChild(opt);
   });
 
   // Navigation
@@ -790,12 +1017,13 @@ async function init() {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === 'ArrowLeft')  prevMonth();
     if (e.key === 'ArrowRight') nextMonth();
-    if (e.key === 'Escape') { closePanel(); closeAddModal(); closeImportModal(); }
+    if (e.key === 'Escape') { closePanel(); closeAddModal(); closeImportModal(); closeRecurringModal(); }
   });
 
   // Onglets
   document.getElementById('btn-view-calendar').addEventListener('click', () => setView('calendar'));
   document.getElementById('btn-view-stats').addEventListener('click',    () => setView('stats'));
+  document.getElementById('btn-view-recurring').addEventListener('click', () => setView('recurring'));
 
   // Import
   document.getElementById('btn-import').addEventListener('click', openImportModal);
@@ -828,14 +1056,30 @@ async function init() {
     document.getElementById('add-category').value = e.target.value === 'revenu' ? 'revenus' : 'autre';
   });
 
-  // Charger les données (DB ou localStorage)
+  // Modal récurrence
+  document.getElementById('modal-recurring-close').addEventListener('click', closeRecurringModal);
+  document.getElementById('btn-cancel-recurring').addEventListener('click', closeRecurringModal);
+  document.getElementById('btn-save-recurring').addEventListener('click', saveRecurring);
+  document.getElementById('modal-recurring').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal-recurring')) closeRecurringModal();
+  });
+  document.getElementById('recur-amount').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveRecurring();
+  });
+  document.getElementById('recur-type').addEventListener('change', e => {
+    document.getElementById('recur-category').value = e.target.value === 'revenu' ? 'revenus' : 'autre';
+  });
+  document.getElementById('btn-add-recurring').addEventListener('click', () => openRecurringModal());
+
+  // Charger les données (DB ou localStorage) en parallèle
   const overlay = document.getElementById('loading-overlay');
   overlay.classList.remove('hidden');
   try {
-    state.expenses = await DB.load();
+    [state.expenses, state.recurring] = await Promise.all([DB.load(), RDB.load()]);
   } catch {
     showToast('Erreur de connexion — mode hors ligne activé');
-    state.expenses = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    state.expenses  = JSON.parse(localStorage.getItem(STORAGE_KEY)   || '[]');
+    state.recurring = JSON.parse(localStorage.getItem(RECURRING_KEY) || '[]');
   } finally {
     overlay.classList.add('hidden');
   }

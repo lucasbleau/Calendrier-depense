@@ -1058,6 +1058,14 @@ function renderGoals() {
   const goalCats  = GOAL_CATEGORIES.map(id => getCat(id));
   const tableCats = CATEGORIES.filter(c => c.id !== 'revenus');
 
+  // Montant attendu des recurrences pour une categorie/mois donnés
+  function recurExpected(categoryId, year, month) {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return state.recurring
+      .filter(t => t.category === categoryId && t.type === 'depense')
+      .reduce((sum, t) => sum + t.amount * t.days.filter(d => d <= daysInMonth).length, 0);
+  }
+
   // Ligne de reglage / info des objectifs
   let html = `<div class="goals-settings">`;
   for (const cat of goalCats) {
@@ -1102,7 +1110,7 @@ function renderGoals() {
       <table class="goals-year-table">
         <thead><tr>
           <th>Mois</th>
-          ${tableCats.map(c => `<th title="${c.label}"><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:2px"></span>${abbrev(c.label)}</th>`).join('')}
+          ${tableCats.map(c => `<th title="${c.label}"><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:2px;vertical-align:middle"></span>${abbrev(c.label)}</th>`).join('')}
           <th>Total</th>
         </tr></thead>
         <tbody>`;
@@ -1110,19 +1118,26 @@ function renderGoals() {
   for (let m = 0; m < 12; m++) {
     const isCurrent = m === nowMonth && currentYear === nowYear;
     const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
+    const showForecast = isCurrent || isFuture;
     const monthData = getMonthData(currentYear, m);
 
     const amounts = tableCats.map(cat =>
       monthData.filter(e => e.type === 'depense' && e.category === cat.id)
                .reduce((s, e) => s + e.amount, 0)
     );
-    const totalSpent = amounts.reduce((s, v) => s + v, 0);
+
+    // Total effectif + prévision pour les cellules vides
+    const rowTotal = tableCats.reduce((s, cat, i) => {
+      if (amounts[i] > 0) return s + amounts[i];
+      if (showForecast) return s + recurExpected(cat.id, currentYear, m);
+      return s;
+    }, 0);
 
     const totalGoalAll = tableCats.reduce((s, cat) => {
       const g = getGoalForMonth(cat.id, currentYear, m);
       return s + (g || 0);
     }, 0);
-    const pct      = totalGoalAll > 0 ? totalSpent / totalGoalAll : 0;
+    const pct      = totalGoalAll > 0 ? rowTotal / totalGoalAll : 0;
     const totalCls = totalGoalAll > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
 
     html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
@@ -1131,17 +1146,33 @@ function renderGoals() {
     amounts.forEach((amount, i) => {
       const cat   = tableCats[i];
       const limit = getGoalForMonth(cat.id, currentYear, m);
-      let cls = '';
-      if (amount > 0 && limit) {
-        const p = amount / limit;
-        cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
+      let cls = '', display = '', limitStr = '';
+
+      if (amount > 0) {
+        display = fmtCompact(amount);
+        if (limit) {
+          const p = amount / limit;
+          cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
+          limitStr = `<span class="gcell-lim">/${fmtCompact(limit)}</span>`;
+        }
+      } else if (showForecast) {
+        const r = recurExpected(cat.id, currentYear, m);
+        if (r > 0) {
+          display = `<span class="gcell-forecast">↺${fmtCompact(r)}</span>`;
+          if (limit) {
+            const p = r / limit;
+            cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
+            limitStr = `<span class="gcell-lim">/${fmtCompact(limit)}</span>`;
+          }
+        } else {
+          display = limit ? `<span class="gcell-lim">${fmtCompact(limit)}</span>` : '—';
+        }
       }
-      const display  = amount > 0 ? fmtCompact(amount) : (isFuture ? '—' : '');
-      const limitStr = limit ? `<span class="gcell-lim">/${fmtCompact(limit)}</span>` : '';
+
       html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
     });
 
-    const totalDisplay = totalSpent > 0 ? fmtCompact(totalSpent) : (isFuture ? '—' : '0€');
+    const totalDisplay = rowTotal > 0 ? fmtCompact(rowTotal) : (isFuture ? '—' : '0€');
     const barWidth     = totalGoalAll > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
     const totalLimStr  = totalGoalAll > 0 ? `<span class="gcell-lim">/${fmtCompact(totalGoalAll)}</span>` : '';
     html += `<td class="gcell-total">

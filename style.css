@@ -1186,11 +1186,9 @@ body {
    ───────────────────────────────────────────────────────────────────────────── */
 
 #view-goals {
-  padding: 1.5rem;
+  padding: 1.5rem 1.25rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-  max-width: 900px;
-  margin: 0 auto;
 }
 
 .goals-header { margin-bottom: 1.5rem; }
@@ -1283,9 +1281,15 @@ body {
 
 .gcell-lim {
   font-size: 10px;
-  color: var(--text-muted);
+  color: var(--text-3);
   margin-left: 1px;
   font-family: 'JetBrains Mono', monospace;
+}
+
+.gcell-forecast {
+  font-style: italic;
+  color: var(--text-3);
+  font-size: 10px;
 }
 
 .goal-inline-edit {
@@ -1359,12 +1363,13 @@ body {
 
 .goals-year-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
 .goals-year-table th {
-  padding: 0.6rem 0.85rem;
-  font-size: 11px;
+  padding: 0.45rem 0.3rem;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1376,7 +1381,7 @@ body {
 .goals-year-table th:first-child { text-align: left; }
 
 .goals-year-table td {
-  padding: 0.5rem 0.85rem;
+  padding: 0.4rem 0.3rem;
   border-bottom: 1px solid var(--border-light);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -1404,7 +1409,7 @@ body {
 .gcell-amount.warn { color: #C17F3C !important; }
 .gcell-amount.over { color: var(--depense) !important; font-weight: 600; }
 
-.gcell-total { min-width: 130px; }
+.gcell-total { min-width: 0; }
 
 .gcell-total-inner {
   display: flex;

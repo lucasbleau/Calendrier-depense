@@ -1354,12 +1354,17 @@ function renderGoals() {
       html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
     });
 
-    const totalDisplay = rowActual > 0 ? fmtEUR(rowActual) : '—';
-    const barWidth     = rowPlanned > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
-    const totalLimStr  = rowPlanned > 0 ? `<span class="gcell-lim">/${fmtEUR(rowPlanned)}</span>` : '';
+    const barWidth = rowPlanned > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
     html += `<td class="gcell-total">
-      <div class="gcell-total-inner">
-        <span class="${totalCls}">${totalDisplay}${totalLimStr}</span>
+      <div class="gcell-total-2l">
+        <div class="gcell-total-row">
+          <span class="gcell-total-lbl">Réel</span>
+          <span class="${totalCls}">${rowActual > 0 ? fmtEUR(rowActual) : '—'}</span>
+        </div>
+        <div class="gcell-total-row">
+          <span class="gcell-total-lbl">Prévu</span>
+          <span class="gcell-total-plan">${rowPlanned > 0 ? fmtEUR(rowPlanned) : '—'}</span>
+        </div>
         ${rowPlanned > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
       </div>
     </td>`;
@@ -1388,7 +1393,7 @@ function renderGoals() {
     return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}${lim}</td>`;
   }).join('');
   const grandCls = grandPlanned > 0 ? (grandActual > grandPlanned ? 'over' : grandActual >= grandPlanned ? 'ok' : grandActual >= grandPlanned * 0.8 ? 'warn' : 'ok') : '';
-  const grandLim = grandPlanned > 0 ? `<span class="gcell-lim">/${fmtEUR(grandPlanned)}</span>` : '';
+  const grandBarWidth = grandPlanned > 0 ? Math.min(100, grandActual / grandPlanned * 100).toFixed(0) : 0;
 
   html += `</tbody>
     <tfoot>
@@ -1396,8 +1401,16 @@ function renderGoals() {
         <td class="gcell-month">Total</td>
         ${tFootCells}
         <td class="gcell-total">
-          <div class="gcell-total-inner">
-            <span class="${grandCls}">${grandActual > 0 ? fmtEUR(grandActual) : '—'}${grandLim}</span>
+          <div class="gcell-total-2l">
+            <div class="gcell-total-row">
+              <span class="gcell-total-lbl">Réel</span>
+              <span class="${grandCls}">${grandActual > 0 ? fmtEUR(grandActual) : '—'}</span>
+            </div>
+            <div class="gcell-total-row">
+              <span class="gcell-total-lbl">Prévu</span>
+              <span class="gcell-total-plan">${grandPlanned > 0 ? fmtEUR(grandPlanned) : '—'}</span>
+            </div>
+            ${grandPlanned > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${grandCls}" style="width:${grandBarWidth}%"></div></div>` : ''}
           </div>
         </td>
       </tr>

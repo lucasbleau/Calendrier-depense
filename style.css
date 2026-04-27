@@ -1586,6 +1586,36 @@ body {
 .gcell-total-inner span.warn { color: #C17F3C; }
 .gcell-total-inner span.over { color: var(--depense); font-weight: 600; }
 
+.gcell-total-2l {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.gcell-total-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.gcell-total-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.gcell-total-plan {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.gcell-total-2l span.ok   { color: var(--revenu); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.gcell-total-2l span.warn { color: #C17F3C;        font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.gcell-total-2l span.over { color: var(--depense); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; font-weight: 600; }
+.gcell-total-2l span:not([class]) { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); white-space: nowrap; }
+
 .goal-bar-wrap {
   flex: 1;
   height: 5px;

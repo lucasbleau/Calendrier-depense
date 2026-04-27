@@ -1388,7 +1388,22 @@ body {
   color: var(--text-3);
   text-align: right;
 }
-.goals-year-table tr:last-child td { border-bottom: none; }
+.goals-year-table tbody tr:last-child td { border-bottom: none; }
+
+/* Footer totaux annuels */
+.goals-foot td {
+  font-weight: 600;
+  background: var(--bg) !important;
+  border-top: 2px solid var(--border);
+  padding-top: 0.55rem;
+}
+.goals-foot .gcell-month {
+  font-family: 'Inter', sans-serif !important;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
 
 .gcell-month {
   font-family: 'Inter', sans-serif !important;
@@ -1445,6 +1460,121 @@ body {
   .goals-settings { gap: 0.4rem; }
   .goal-setting-card { min-width: 140px; padding: 0.55rem 0.65rem; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Vue Catégories
+   ───────────────────────────────────────────────────────────────────────────── */
+
+#view-categories {
+  padding: 1.5rem 1.25rem;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.cat-mgmt-header { margin-bottom: 1.25rem; }
+
+.cat-mgmt-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.cat-mgmt-subtitle {
+  font-size: 13px;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+.cat-add-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.cat-add-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cat-color-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cat-color-inp {
+  position: absolute;
+  opacity: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  inset: 0;
+}
+
+.cat-color-swatch {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 2px solid rgba(0,0,0,0.12);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.cat-list-mgmt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cat-mgmt-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  transition: border-color 0.15s;
+}
+.cat-mgmt-item:hover { border-color: var(--border); }
+
+.cat-label-edit {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text);
+  padding: 0.2rem 0.3rem;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.cat-label-edit:focus {
+  outline: none;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--accent-faint);
+}
+
+.btn-delete-cat {
+  font-size: 12px;
+  color: var(--text-3);
+  opacity: 0.45;
+  transition: opacity 0.15s, color 0.15s;
+}
+.btn-delete-cat:not([disabled]):hover { color: var(--depense); opacity: 1; }
+.btn-delete-cat[disabled] { cursor: not-allowed; opacity: 0.15; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Auth overlay

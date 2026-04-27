@@ -4,16 +4,17 @@
 // Constantes
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY   = 'expense-calendar-data-v1';
-const RECURRING_KEY = 'expense-calendar-recurring-v1';
-const GOALS_KEY     = 'expense-calendar-goals-v1';
-const AUTH_KEY      = 'expense-calendar-auth-v1';
+const STORAGE_KEY    = 'expense-calendar-data-v1';
+const RECURRING_KEY  = 'expense-calendar-recurring-v1';
+const GOALS_KEY      = 'expense-calendar-goals-v1';
+const AUTH_KEY       = 'expense-calendar-auth-v1';
+const CATEGORIES_KEY = 'expense-calendar-categories-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
 const DAYS_SHORT = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 
-const CATEGORIES = [
+let CATEGORIES = [
   { id: 'courses',       label: 'Courses',       color: '#7B9E6B' },
   { id: 'voiture',       label: 'Voiture',       color: '#8B7355' },
   { id: 'essence',       label: 'Essence',       color: '#C17F3C' },
@@ -206,6 +207,17 @@ const GoalDB = {
   },
 };
 
+// Categories toujours en localStorage (config utilisateur, pas de données financières)
+const CatDB = {
+  load() {
+    const raw = localStorage.getItem(CATEGORIES_KEY);
+    return raw ? JSON.parse(raw) : null;
+  },
+  save(cats) {
+    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(cats));
+  },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,6 +262,21 @@ function guessCategory(label) {
 
 function getCat(id) {
   return CATEGORIES.find(c => c.id === id) ?? CATEGORIES[CATEGORIES.length - 1];
+}
+
+function populateCategoryDropdowns() {
+  ['add-category', 'recur-category'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '';
+    CATEGORIES.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat.id; opt.textContent = cat.label;
+      sel.appendChild(opt);
+    });
+    if (CATEGORIES.find(c => c.id === current)) sel.value = current;
+  });
 }
 
 function todayStr() {
@@ -1165,7 +1192,7 @@ function renderGoals() {
             limitStr = `<span class="gcell-lim">/${fmtCompact(limit)}</span>`;
           }
         } else {
-          display = limit ? `<span class="gcell-lim">${fmtCompact(limit)}</span>` : '—';
+          display = '—';
         }
       }
 
@@ -1184,7 +1211,46 @@ function renderGoals() {
     html += `</tr>`;
   }
 
-  html += `</tbody></table></div>`;
+  // Totaux annuels par colonne (dépenses réelles uniquement)
+  const colTotals = tableCats.map(cat => {
+    let total = 0;
+    for (let m2 = 0; m2 < 12; m2++) {
+      total += getMonthData(currentYear, m2)
+        .filter(e => e.type === 'depense' && e.category === cat.id)
+        .reduce((s, e) => s + e.amount, 0);
+    }
+    return total;
+  });
+  const colGoalTotals = tableCats.map(cat => {
+    let total = 0;
+    for (let m2 = 0; m2 < 12; m2++) total += getGoalForMonth(cat.id, currentYear, m2) || 0;
+    return total;
+  });
+  const grandTotal     = colTotals.reduce((s, t) => s + t, 0);
+  const grandGoalTotal = colGoalTotals.reduce((s, t) => s + t, 0);
+
+  const tFootCells = colTotals.map((t, i) => {
+    const g   = colGoalTotals[i];
+    const cls = g > 0 ? (t >= g ? 'over' : t >= g * 0.8 ? 'warn' : 'ok') : '';
+    const lim = g > 0 ? `<span class="gcell-lim">/${fmtCompact(g)}</span>` : '';
+    return `<td class="gcell-amount ${cls}">${t > 0 ? fmtCompact(t) : '—'}${lim}</td>`;
+  }).join('');
+  const grandCls = grandGoalTotal > 0 ? (grandTotal >= grandGoalTotal ? 'over' : grandTotal >= grandGoalTotal * 0.8 ? 'warn' : 'ok') : '';
+  const grandLim = grandGoalTotal > 0 ? `<span class="gcell-lim">/${fmtCompact(grandGoalTotal)}</span>` : '';
+
+  html += `</tbody>
+    <tfoot>
+      <tr class="goals-foot">
+        <td class="gcell-month">Total</td>
+        ${tFootCells}
+        <td class="gcell-total">
+          <div class="gcell-total-inner">
+            <span class="${grandCls}">${grandTotal > 0 ? fmtCompact(grandTotal) : '—'}${grandLim}</span>
+          </div>
+        </td>
+      </tr>
+    </tfoot>
+  </table></div>`;
   container.innerHTML = html;
 
   // Evenements
@@ -1245,29 +1311,144 @@ async function deleteGoal(category) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Vue Catégories
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderCategories() {
+  const container = document.getElementById('categories-body');
+
+  let html = `
+    <div class="cat-mgmt-header">
+      <h2 class="cat-mgmt-title">Catégories</h2>
+      <p class="cat-mgmt-subtitle">Gérez les catégories disponibles. Les catégories système (objectifs) et celles utilisées par des opérations existantes ne peuvent pas être supprimées.</p>
+    </div>
+    <div class="cat-add-form">
+      <input type="text" id="new-cat-label" placeholder="Nom de la catégorie…" class="cat-add-input" />
+      <label class="cat-color-label" title="Choisir une couleur">
+        <input type="color" id="new-cat-color" class="cat-color-inp" value="#9A9888" />
+        <span class="cat-color-swatch" id="new-cat-swatch" style="background:#9A9888"></span>
+      </label>
+      <button class="btn-primary" id="btn-add-cat">+ Ajouter</button>
+    </div>
+    <div class="cat-list-mgmt">`;
+
+  CATEGORIES.forEach(cat => {
+    const isGoalCat  = GOAL_CATEGORIES.includes(cat.id);
+    const usedCount  = state.expenses.filter(e => e.category === cat.id).length;
+    const canDelete  = !isGoalCat && usedCount === 0;
+    const delTitle   = isGoalCat ? 'Catégorie système (objectifs)' : (usedCount > 0 ? `${usedCount} opération(s) liée(s)` : 'Supprimer');
+
+    html += `
+      <div class="cat-mgmt-item" data-id="${cat.id}">
+        <label class="cat-color-label" title="Modifier la couleur">
+          <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
+          <span class="cat-color-swatch" style="background:${cat.color}"></span>
+        </label>
+        <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
+        <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
+          ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
+      </div>`;
+  });
+
+  html += `</div>`;
+  container.innerHTML = html;
+
+  // Nouvelle catégorie
+  document.getElementById('btn-add-cat').addEventListener('click', addCategory);
+  document.getElementById('new-cat-label').addEventListener('keydown', e => { if (e.key === 'Enter') addCategory(); });
+  document.getElementById('new-cat-color').addEventListener('input', e => {
+    document.getElementById('new-cat-swatch').style.background = e.target.value;
+  });
+
+  // Couleur inline
+  container.querySelectorAll('.cat-color-edit').forEach(input => {
+    input.addEventListener('input', e => {
+      e.target.nextElementSibling.style.background = e.target.value;
+    });
+    input.addEventListener('change', e => updateCatColor(e.target.dataset.id, e.target.value));
+  });
+
+  // Label inline
+  container.querySelectorAll('.cat-label-edit').forEach(input => {
+    input.addEventListener('blur', e => updateCatLabel(e.target.dataset.id, e.target.value));
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+  });
+
+  // Suppression
+  container.querySelectorAll('.btn-delete-cat:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () => deleteCategory(btn.dataset.id));
+  });
+}
+
+function addCategory() {
+  const labelInput = document.getElementById('new-cat-label');
+  const colorInput = document.getElementById('new-cat-color');
+  const label = labelInput.value.trim();
+  if (!label) { labelInput.focus(); return; }
+
+  const id = label.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  if (CATEGORIES.find(c => c.id === id)) {
+    showToast('Une catégorie avec ce nom existe déjà');
+    return;
+  }
+
+  CATEGORIES.push({ id, label, color: colorInput.value });
+  CatDB.save(CATEGORIES);
+  populateCategoryDropdowns();
+  labelInput.value = '';
+  renderCategories();
+  showToast(`Catégorie « ${label} » ajoutée`);
+}
+
+function updateCatColor(id, color) {
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat || cat.color === color) return;
+  cat.color = color;
+  CatDB.save(CATEGORIES);
+  if (state.view === 'calendar') renderCalendar();
+  if (state.view === 'stats')    renderStats();
+  if (state.view === 'goals')    renderGoals();
+}
+
+function updateCatLabel(id, label) {
+  label = label.trim();
+  if (!label) { renderCategories(); return; }
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat || cat.label === label) return;
+  cat.label = label;
+  CatDB.save(CATEGORIES);
+  populateCategoryDropdowns();
+  renderCategories();
+}
+
+function deleteCategory(id) {
+  CATEGORIES = CATEGORIES.filter(c => c.id !== id);
+  CatDB.save(CATEGORIES);
+  populateCategoryDropdowns();
+  renderCategories();
+  showToast('Catégorie supprimée');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Vues
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setView(view) {
   state.view = view;
-  document.getElementById('view-calendar').classList.toggle('hidden', view !== 'calendar');
-  document.getElementById('view-stats').classList.toggle('hidden', view !== 'stats');
-  document.getElementById('view-recurring').classList.toggle('hidden', view !== 'recurring');
-  document.getElementById('view-goals').classList.toggle('hidden', view !== 'goals');
-
-  document.getElementById('btn-view-calendar').classList.toggle('active', view === 'calendar');
-  document.getElementById('btn-view-stats').classList.toggle('active', view === 'stats');
-  document.getElementById('btn-view-recurring').classList.toggle('active', view === 'recurring');
-  document.getElementById('btn-view-goals').classList.toggle('active', view === 'goals');
-
-  document.getElementById('btn-view-calendar').setAttribute('aria-selected', view === 'calendar');
-  document.getElementById('btn-view-stats').setAttribute('aria-selected', view === 'stats');
-  document.getElementById('btn-view-recurring').setAttribute('aria-selected', view === 'recurring');
-  document.getElementById('btn-view-goals').setAttribute('aria-selected', view === 'goals');
+  ['calendar', 'stats', 'recurring', 'goals', 'categories'].forEach(v => {
+    document.getElementById(`view-${v}`).classList.toggle('hidden', view !== v);
+    document.getElementById(`btn-view-${v}`).classList.toggle('active', view === v);
+    document.getElementById(`btn-view-${v}`).setAttribute('aria-selected', view === v);
+  });
 
   if (view === 'stats') renderStats();
   if (view === 'recurring') renderRecurring();
   if (view === 'goals') renderGoals();
+  if (view === 'categories') renderCategories();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1308,21 +1489,10 @@ async function init() {
     selYear.appendChild(opt);
   }
 
-  // Catégories (modal ajout)
-  const catSel = document.getElementById('add-category');
-  CATEGORIES.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat.id; opt.textContent = cat.label;
-    catSel.appendChild(opt);
-  });
-
-  // Catégories (modal récurrence)
-  const recurCatSel = document.getElementById('recur-category');
-  CATEGORIES.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat.id; opt.textContent = cat.label;
-    recurCatSel.appendChild(opt);
-  });
+  // Catégories — charger depuis localStorage si sauvegardé
+  const savedCats = CatDB.load();
+  if (savedCats && savedCats.length > 0) CATEGORIES = savedCats;
+  populateCategoryDropdowns();
 
   // Navigation
   document.getElementById('prev-month').addEventListener('click', prevMonth);
@@ -1345,10 +1515,11 @@ async function init() {
   });
 
   // Onglets
-  document.getElementById('btn-view-calendar').addEventListener('click',  () => setView('calendar'));
-  document.getElementById('btn-view-stats').addEventListener('click',     () => setView('stats'));
-  document.getElementById('btn-view-recurring').addEventListener('click', () => setView('recurring'));
-  document.getElementById('btn-view-goals').addEventListener('click',     () => setView('goals'));
+  document.getElementById('btn-view-calendar').addEventListener('click',    () => setView('calendar'));
+  document.getElementById('btn-view-stats').addEventListener('click',       () => setView('stats'));
+  document.getElementById('btn-view-recurring').addEventListener('click',   () => setView('recurring'));
+  document.getElementById('btn-view-goals').addEventListener('click',       () => setView('goals'));
+  document.getElementById('btn-view-categories').addEventListener('click',  () => setView('categories'));
 
   // Import
   document.getElementById('btn-import').addEventListener('click', openImportModal);

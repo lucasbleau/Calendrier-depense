@@ -410,14 +410,28 @@ body {
 }
 
 .operation-item {
-  display: grid;
-  grid-template-columns: 8px 1fr auto auto auto;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 1.1rem;
   transition: background 0.1s;
 }
 .operation-item:hover { background: var(--surface-2); }
+
+.op-line1 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.op-line1 .op-label { flex: 1; min-width: 0; }
+
+.op-line2 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-left: calc(7px + 0.4rem);
+}
+.op-line2 .op-amount { margin-left: auto; }
 
 .op-dot {
   width: 7px;
@@ -957,13 +971,12 @@ body {
 
 .panel-recur-item {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.1rem;
   padding: 0.45rem 1.1rem;
   transition: background 0.1s;
 }
 .panel-recur-item:hover { background: var(--accent-faint); }
-.panel-recur-item .op-label { flex: 1; min-width: 0; }
 
 .btn-edit-recur-amount {
   background: none;

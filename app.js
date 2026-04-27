@@ -478,18 +478,19 @@ function renderCalendar() {
 
   const monthData = getMonthData(currentYear, currentMonth);
 
-  // Indicateur objectif mensuel
+  // Indicateur objectif mensuel — même calcul que la colonne Total de l'onglet Objectifs
   const goalIndicator = document.getElementById('month-goal-indicator');
   if (goalIndicator) {
-    const totalGoal = CATEGORIES.filter(c => c.id !== 'revenus').reduce((s, cat) => {
+    const totalPlanned = CATEGORIES.filter(c => c.id !== 'revenus').reduce((s, cat) => {
+      const r = recurExpected(cat.id, currentYear, currentMonth);
       const g = getGoalForMonth(cat.id, currentYear, currentMonth);
-      return s + (g || 0);
+      return s + (r > 0 ? r : (g || 0));
     }, 0);
-    if (totalGoal > 0) {
+    if (totalPlanned > 0) {
       const totalSpent = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
-      const pct = totalSpent / totalGoal;
+      const pct = totalSpent / totalPlanned;
       const cls = pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
-      goalIndicator.textContent = `${fmtCompact(totalSpent)} / ${fmtCompact(totalGoal)}`;
+      goalIndicator.textContent = `${fmtCompact(totalSpent)} / ${fmtCompact(totalPlanned)}`;
       goalIndicator.className = `month-goal-indicator ${cls}`;
     } else {
       goalIndicator.className = 'month-goal-indicator hidden';
@@ -613,11 +614,15 @@ function renderDayPanel() {
     const cat = getCat(item.category);
     html += `
       <li class="operation-item">
-        <span class="op-dot" style="background:${cat.color}"></span>
-        <span class="op-label" title="${item.label}">${item.label}</span>
-        <span class="op-cat">${cat.label}</span>
-        <span class="op-amount ${item.type}">${item.type === 'depense' ? '-' : '+'}${fmtEUR(item.amount)}</span>
-        <button class="op-delete" data-id="${item.id}" aria-label="Supprimer ${item.label}">&#10005;</button>
+        <div class="op-line1">
+          <span class="op-dot" style="background:${cat.color}"></span>
+          <span class="op-label" title="${item.label}">${item.label}</span>
+        </div>
+        <div class="op-line2">
+          <span class="op-cat">${cat.label}</span>
+          <span class="op-amount ${item.type}">${item.type === 'depense' ? '-' : '+'}${fmtEUR(item.amount)}</span>
+          <button class="op-delete" data-id="${item.id}" aria-label="Supprimer ${item.label}">&#10005;</button>
+        </div>
       </li>
     `;
   }
@@ -635,13 +640,17 @@ function renderDayPanel() {
       const hasOverride = !!r._overridden;
       html += `
         <div class="panel-recur-item" data-recur-id="${r.id}">
-          <span class="op-dot" style="background:${cat.color}"></span>
-          <span class="op-label" title="${r.label}">${r.label}</span>
-          <span class="op-cat">${cat.label}</span>
-          <span class="op-amount ${r.type}${hasOverride ? ' recur-overridden' : ''}" id="recur-amt-${r.id}">${r.type === 'depense' ? '-' : '+'}${fmtEUR(r.amount)}</span>
-          ${hasOverride ? `<button class="btn-recur-reset" data-recur-id="${r.id}" data-ym="${ym}" title="Rétablir le montant de base (${fmtEUR(baseTask.amount)})">↺ base</button>` : ''}
-          <button class="btn-edit-recur-amount" data-recur-id="${r.id}" data-ym="${ym}" data-amount="${r.amount}" data-type="${r.type}" title="Modifier pour ce mois">Modifier</button>
-          <button class="btn-use-recur" data-recur-id="${r.id}" title="Ajouter comme opération">+</button>
+          <div class="op-line1">
+            <span class="op-dot" style="background:${cat.color}"></span>
+            <span class="op-label" title="${r.label}">${r.label}</span>
+          </div>
+          <div class="op-line2">
+            <span class="op-cat">${cat.label}</span>
+            <span class="op-amount ${r.type}${hasOverride ? ' recur-overridden' : ''}" id="recur-amt-${r.id}">${r.type === 'depense' ? '-' : '+'}${fmtEUR(r.amount)}</span>
+            ${hasOverride ? `<button class="btn-recur-reset" data-recur-id="${r.id}" data-ym="${ym}" title="Rétablir le montant de base (${fmtEUR(baseTask.amount)})">↺ base</button>` : ''}
+            <button class="btn-edit-recur-amount" data-recur-id="${r.id}" data-ym="${ym}" data-amount="${r.amount}" data-type="${r.type}" title="Modifier pour ce mois">Modifier</button>
+            <button class="btn-use-recur" data-recur-id="${r.id}" title="Ajouter comme opération">+</button>
+          </div>
         </div>
       `;
     }
@@ -1220,6 +1229,18 @@ function showToast(msg) {
 // Rendu : Vue Objectifs
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Montant attendu des récurrences pour une catégorie/mois donnés (overrides inclus)
+function recurExpected(categoryId, year, month) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
+  return state.recurring
+    .filter(t => t.category === categoryId && t.type === 'depense')
+    .reduce((sum, t) => {
+      const ov = getOverride(t.id, ym);
+      return sum + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= daysInMonth).length;
+    }, 0);
+}
+
 function renderGoals() {
   const container = document.getElementById('goals-body');
   const { currentYear } = state;
@@ -1228,18 +1249,6 @@ function renderGoals() {
 
   const goalCats  = GOAL_CATEGORIES.map(id => getCat(id));
   const tableCats = CATEGORIES.filter(c => c.id !== 'revenus');
-
-  // Montant attendu des recurrences pour une categorie/mois donnés (overrides inclus)
-  function recurExpected(categoryId, year, month) {
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
-    return state.recurring
-      .filter(t => t.category === categoryId && t.type === 'depense')
-      .reduce((sum, t) => {
-        const ov = getOverride(t.id, ym);
-        return sum + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= daysInMonth).length;
-      }, 0);
-  }
 
   // Ligne de reglage / info des objectifs
   let html = `<div class="goals-settings">`;
@@ -1322,18 +1331,20 @@ function renderGoals() {
       const denom = r > 0 ? r : goal; // dénominateur : récurrence prioritaire, sinon objectif
       let cls = '', display = '', limitStr = '';
 
-      if (amount > 0) {
+      if (r > 0) {
+        // Récurrence : montant réel = transactions + récurrence
+        const total = amount + r;
+        const p = total / r;
+        cls     = amount === 0 ? 'ok' : (p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok');
+        display = fmtCompact(total);
+        limitStr = `<span class="gcell-lim">/${fmtCompact(r)}</span>`;
+      } else if (amount > 0) {
         display = fmtCompact(amount);
         if (denom) {
           const p = amount / denom;
           cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
           limitStr = `<span class="gcell-lim">/${fmtCompact(denom)}</span>`;
         }
-      } else if (r > 0) {
-        // Prévision récurrence — mois passé en style atténué
-        const fcls = isPast ? 'gcell-forecast gcell-forecast-past' : 'gcell-forecast';
-        display  = `<span class="${fcls}">↺${fmtCompact(r)}</span>`;
-        limitStr = `<span class="gcell-lim">/${fmtCompact(r)}</span>`;
       } else if (goal && !isPast) {
         display = `<span class="gcell-lim">${fmtCompact(goal)}</span>`;
       } else {

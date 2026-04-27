@@ -801,6 +801,31 @@ function renderStats() {
 
 function renderRecurring() {
   const container = document.getElementById('recurring-list');
+  const summary   = document.getElementById('recurring-summary');
+
+  const totalDep = state.recurring.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
+  const totalRev = state.recurring.filter(t => t.type === 'revenu').reduce((s, t) => s + t.amount, 0);
+  const solde    = totalRev - totalDep;
+  const soldeCls = solde >= 0 ? 'revenu-color' : 'depense-color';
+
+  if (state.recurring.length > 0) {
+    summary.classList.remove('hidden');
+    summary.innerHTML = `
+      <div class="recur-kpi">
+        <span class="recur-kpi-label">Dépenses / mois</span>
+        <span class="recur-kpi-value depense-color">−${fmtEUR(totalDep)}</span>
+      </div>
+      <div class="recur-kpi">
+        <span class="recur-kpi-label">Revenus / mois</span>
+        <span class="recur-kpi-value revenu-color">+${fmtEUR(totalRev)}</span>
+      </div>
+      <div class="recur-kpi recur-kpi--solde">
+        <span class="recur-kpi-label">Solde net</span>
+        <span class="recur-kpi-value ${soldeCls}">${solde >= 0 ? '+' : ''}${fmtEUR(solde)}</span>
+      </div>`;
+  } else {
+    summary.classList.add('hidden');
+  }
 
   if (state.recurring.length === 0) {
     container.innerHTML = `<p class="recurring-empty">Aucune récurrence configurée.<br>Cliquez sur « + Nouvelle récurrence » pour commencer.</p>`;

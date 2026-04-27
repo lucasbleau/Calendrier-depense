@@ -449,13 +449,12 @@ function renderCalendar() {
   // Indicateur objectif mensuel
   const goalIndicator = document.getElementById('month-goal-indicator');
   if (goalIndicator) {
-    const totalGoal = GOAL_CATEGORIES.reduce((s, id) => {
-      const g = getGoalForMonth(id, currentYear, currentMonth);
+    const totalGoal = CATEGORIES.filter(c => c.id !== 'revenus').reduce((s, cat) => {
+      const g = getGoalForMonth(cat.id, currentYear, currentMonth);
       return s + (g || 0);
     }, 0);
     if (totalGoal > 0) {
-      const totalSpent = monthData.filter(e => e.type === 'depense' && GOAL_CATEGORIES.includes(e.category))
-                                   .reduce((s, e) => s + e.amount, 0);
+      const totalSpent = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
       const pct = totalSpent / totalGoal;
       const cls = pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
       goalIndicator.textContent = `${fmtCompact(totalSpent)} / ${fmtCompact(totalGoal)}`;
@@ -808,23 +807,52 @@ function renderRecurring() {
     return;
   }
 
-  container.innerHTML = state.recurring.map(task => {
-    const cat = getCat(task.category);
-    return `
+  // Grouper par catégorie, trier chaque groupe par montant décroissant
+  const groups = {};
+  state.recurring.forEach(task => {
+    if (!groups[task.category]) groups[task.category] = [];
+    groups[task.category].push(task);
+  });
+  Object.values(groups).forEach(tasks => tasks.sort((a, b) => b.amount - a.amount));
+
+  // Trier les groupes par total dépenses décroissant
+  const sortedGroups = Object.entries(groups).sort(([, a], [, b]) => {
+    const sumA = a.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
+    const sumB = b.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
+    return sumB - sumA;
+  });
+
+  container.innerHTML = sortedGroups.map(([catId, tasks]) => {
+    const cat      = getCat(catId);
+    const catDep   = tasks.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
+    const catRev   = tasks.filter(t => t.type === 'revenu').reduce((s, t) => s + t.amount, 0);
+    const totalStr = [
+      catDep > 0 ? `−${fmtEUR(catDep)}/mois` : '',
+      catRev > 0 ? `+${fmtEUR(catRev)}/mois` : '',
+    ].filter(Boolean).join(' · ');
+
+    const tasksHtml = tasks.map(task => `
       <div class="recurring-card">
         <span class="recurring-icon">↺</span>
         <div class="recurring-info">
           <span class="recurring-label">${task.label}</span>
-          <span class="recurring-meta">
-            <span class="rc-dot" style="background:${cat.color}"></span>
-            ${cat.label} &middot; ${fmtDays(task.days)}
-          </span>
+          <span class="recurring-meta">${fmtDays(task.days)}</span>
         </div>
         <span class="recurring-amount ${task.type}">${task.type === 'depense' ? '−' : '+'}${fmtEUR(task.amount)}</span>
         <button class="btn-icon btn-edit-recur" data-id="${task.id}" title="Modifier">✏</button>
         <button class="btn-icon btn-delete-recur" data-id="${task.id}" title="Supprimer">&#10005;</button>
       </div>
-    `;
+    `).join('');
+
+    return `
+      <div class="recurring-group">
+        <div class="recurring-group-header">
+          <span class="rc-dot" style="background:${cat.color}"></span>
+          <span class="recurring-group-name">${cat.label}</span>
+          ${totalStr ? `<span class="recurring-group-total">${totalStr}</span>` : ''}
+        </div>
+        ${tasksHtml}
+      </div>`;
   }).join('');
 
   container.querySelectorAll('.btn-edit-recur').forEach(btn => {
@@ -1145,7 +1173,7 @@ function renderGoals() {
   for (let m = 0; m < 12; m++) {
     const isCurrent = m === nowMonth && currentYear === nowYear;
     const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
-    const showForecast = isCurrent || isFuture;
+    const isPast    = !isCurrent && !isFuture;
     const monthData = getMonthData(currentYear, m);
 
     const amounts = tableCats.map(cat =>
@@ -1153,90 +1181,83 @@ function renderGoals() {
                .reduce((s, e) => s + e.amount, 0)
     );
 
-    // Total effectif + prévision pour les cellules vides
-    const rowTotal = tableCats.reduce((s, cat, i) => {
-      if (amounts[i] > 0) return s + amounts[i];
-      if (showForecast) return s + recurExpected(cat.id, currentYear, m);
-      return s;
+    // Budget planifié : récurrence prioritaire, sinon objectif
+    const rowPlanned = tableCats.reduce((s, cat) => {
+      const r = recurExpected(cat.id, currentYear, m);
+      const g = getGoalForMonth(cat.id, currentYear, m);
+      return s + (r > 0 ? r : (g || 0));
     }, 0);
 
-    const totalGoalAll = tableCats.reduce((s, cat) => {
-      const g = getGoalForMonth(cat.id, currentYear, m);
-      return s + (g || 0);
-    }, 0);
-    const pct      = totalGoalAll > 0 ? rowTotal / totalGoalAll : 0;
-    const totalCls = totalGoalAll > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
+    const rowActual = amounts.reduce((s, a) => s + a, 0);
+    const pct       = rowPlanned > 0 ? rowActual / rowPlanned : 0;
+    const totalCls  = rowPlanned > 0 ? (pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
 
     html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
     html += `<td class="gcell-month">${MONTHS_SHORT[m]}</td>`;
 
     amounts.forEach((amount, i) => {
       const cat   = tableCats[i];
-      const limit = getGoalForMonth(cat.id, currentYear, m);
+      const r     = recurExpected(cat.id, currentYear, m);
+      const goal  = getGoalForMonth(cat.id, currentYear, m);
+      const denom = r > 0 ? r : goal; // dénominateur : récurrence prioritaire, sinon objectif
       let cls = '', display = '', limitStr = '';
 
       if (amount > 0) {
         display = fmtCompact(amount);
-        if (limit) {
-          const p = amount / limit;
+        if (denom) {
+          const p = amount / denom;
           cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
-          limitStr = `<span class="gcell-lim">/${fmtCompact(limit)}</span>`;
+          limitStr = `<span class="gcell-lim">/${fmtCompact(denom)}</span>`;
         }
-      } else if (showForecast) {
-        const r = recurExpected(cat.id, currentYear, m);
-        if (r > 0) {
-          display = `<span class="gcell-forecast">↺${fmtCompact(r)}</span>`;
-          if (limit) {
-            const p = r / limit;
-            cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
-            limitStr = `<span class="gcell-lim">/${fmtCompact(limit)}</span>`;
-          }
-        } else {
-          display = '—';
-        }
+      } else if (r > 0) {
+        // Prévision récurrence — mois passé en style atténué
+        const fcls = isPast ? 'gcell-forecast gcell-forecast-past' : 'gcell-forecast';
+        display  = `<span class="${fcls}">↺${fmtCompact(r)}</span>`;
+        limitStr = `<span class="gcell-lim">/${fmtCompact(r)}</span>`;
+      } else if (goal && !isPast) {
+        display = `<span class="gcell-lim">${fmtCompact(goal)}</span>`;
+      } else {
+        display = '—';
       }
 
       html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
     });
 
-    const totalDisplay = rowTotal > 0 ? fmtCompact(rowTotal) : (isFuture ? '—' : '0€');
-    const barWidth     = totalGoalAll > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
-    const totalLimStr  = totalGoalAll > 0 ? `<span class="gcell-lim">/${fmtCompact(totalGoalAll)}</span>` : '';
+    const totalDisplay = rowActual > 0 ? fmtCompact(rowActual) : '—';
+    const barWidth     = rowPlanned > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
+    const totalLimStr  = rowPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(rowPlanned)}</span>` : '';
     html += `<td class="gcell-total">
       <div class="gcell-total-inner">
         <span class="${totalCls}">${totalDisplay}${totalLimStr}</span>
-        ${totalGoalAll > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
+        ${rowPlanned > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
       </div>
     </td>`;
     html += `</tr>`;
   }
 
-  // Totaux annuels par colonne (dépenses réelles uniquement)
-  const colTotals = tableCats.map(cat => {
-    let total = 0;
+  // Totaux annuels par colonne : réel / planifié (récurrence prioritaire, sinon objectif)
+  const colData = tableCats.map(cat => {
+    let actual = 0, planned = 0;
     for (let m2 = 0; m2 < 12; m2++) {
-      total += getMonthData(currentYear, m2)
+      actual += getMonthData(currentYear, m2)
         .filter(e => e.type === 'depense' && e.category === cat.id)
         .reduce((s, e) => s + e.amount, 0);
+      const r = recurExpected(cat.id, currentYear, m2);
+      const g = getGoalForMonth(cat.id, currentYear, m2);
+      planned += r > 0 ? r : (g || 0);
     }
-    return total;
+    return { actual, planned };
   });
-  const colGoalTotals = tableCats.map(cat => {
-    let total = 0;
-    for (let m2 = 0; m2 < 12; m2++) total += getGoalForMonth(cat.id, currentYear, m2) || 0;
-    return total;
-  });
-  const grandTotal     = colTotals.reduce((s, t) => s + t, 0);
-  const grandGoalTotal = colGoalTotals.reduce((s, t) => s + t, 0);
+  const grandActual  = colData.reduce((s, { actual }) => s + actual, 0);
+  const grandPlanned = colData.reduce((s, { planned }) => s + planned, 0);
 
-  const tFootCells = colTotals.map((t, i) => {
-    const g   = colGoalTotals[i];
-    const cls = g > 0 ? (t >= g ? 'over' : t >= g * 0.8 ? 'warn' : 'ok') : '';
-    const lim = g > 0 ? `<span class="gcell-lim">/${fmtCompact(g)}</span>` : '';
-    return `<td class="gcell-amount ${cls}">${t > 0 ? fmtCompact(t) : '—'}${lim}</td>`;
+  const tFootCells = colData.map(({ actual, planned }) => {
+    const cls = planned > 0 ? (actual >= planned ? 'over' : actual >= planned * 0.8 ? 'warn' : 'ok') : '';
+    const lim = planned > 0 ? `<span class="gcell-lim">/${fmtCompact(planned)}</span>` : '';
+    return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}${lim}</td>`;
   }).join('');
-  const grandCls = grandGoalTotal > 0 ? (grandTotal >= grandGoalTotal ? 'over' : grandTotal >= grandGoalTotal * 0.8 ? 'warn' : 'ok') : '';
-  const grandLim = grandGoalTotal > 0 ? `<span class="gcell-lim">/${fmtCompact(grandGoalTotal)}</span>` : '';
+  const grandCls = grandPlanned > 0 ? (grandActual >= grandPlanned ? 'over' : grandActual >= grandPlanned * 0.8 ? 'warn' : 'ok') : '';
+  const grandLim = grandPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(grandPlanned)}</span>` : '';
 
   html += `</tbody>
     <tfoot>
@@ -1245,7 +1266,7 @@ function renderGoals() {
         ${tFootCells}
         <td class="gcell-total">
           <div class="gcell-total-inner">
-            <span class="${grandCls}">${grandTotal > 0 ? fmtCompact(grandTotal) : '—'}${grandLim}</span>
+            <span class="${grandCls}">${grandActual > 0 ? fmtCompact(grandActual) : '—'}${grandLim}</span>
           </div>
         </td>
       </tr>

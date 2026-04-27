@@ -956,14 +956,72 @@ body {
 }
 
 .panel-recur-item {
-  display: grid;
-  grid-template-columns: 8px 1fr auto auto auto;
+  display: flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 1.1rem;
   transition: background 0.1s;
 }
 .panel-recur-item:hover { background: var(--accent-faint); }
+.panel-recur-item .op-label { flex: 1; min-width: 0; }
+
+.btn-edit-recur-amount {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.btn-edit-recur-amount:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+}
+
+.btn-recur-reset {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.btn-recur-reset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.recur-overridden {
+  font-style: italic;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.recur-amount-input {
+  width: 80px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: right;
+  padding: 1px 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  flex-shrink: 0;
+}
 
 .btn-use-recur {
   background: none;

@@ -9,6 +9,7 @@ const RECURRING_KEY  = 'expense-calendar-recurring-v1';
 const GOALS_KEY      = 'expense-calendar-goals-v1';
 const AUTH_KEY       = 'expense-calendar-auth-v1';
 const CATEGORIES_KEY = 'expense-calendar-categories-v1';
+const OVERRIDES_KEY  = 'expense-calendar-recurring-overrides-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -207,6 +208,16 @@ const GoalDB = {
   },
 };
 
+// Overrides toujours en localStorage (préférence UI par appareil, pas de données financières critiques)
+const OverrideDB = {
+  load() {
+    try { return JSON.parse(localStorage.getItem(OVERRIDES_KEY) || '[]'); } catch { return []; }
+  },
+  save(overrides) {
+    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
+  },
+};
+
 // Categories toujours en localStorage (config utilisateur, pas de données financières)
 const CatDB = {
   load() {
@@ -252,6 +263,19 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+function getOverride(recurId, ym) {
+  return state.overrides.find(o => o.recurId === recurId && o.yearMonth === ym);
+}
+
+function setRecurOverride(recurId, ym, amount) {
+  state.overrides = state.overrides.filter(o => !(o.recurId === recurId && o.yearMonth === ym));
+  const task = state.recurring.find(t => t.id === recurId);
+  if (task && amount !== task.amount) {
+    state.overrides.push({ recurId, yearMonth: ym, amount });
+  }
+  OverrideDB.save(state.overrides);
+}
+
 function guessCategory(label) {
   const lower = label.toLowerCase();
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
@@ -289,12 +313,16 @@ function fmtDays(days) {
   return sorted.map(d => d + (d === 1 ? 'er' : '')).join(', ') + ' du mois';
 }
 
-// Retourne les récurrences actives pour un jour donné (en tenant compte des mois courts)
+// Retourne les récurrences actives pour un jour donné, avec overrides mensuels appliqués
 function getRecurringForDay(year, month, day) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  return state.recurring.filter(task =>
-    task.days.some(d => Math.min(d, daysInMonth) === day)
-  );
+  const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
+  return state.recurring
+    .filter(task => task.days.some(d => Math.min(d, daysInMonth) === day))
+    .map(task => {
+      const ov = getOverride(task.id, ym);
+      return ov ? { ...task, amount: ov.amount, _overridden: true } : task;
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -381,6 +409,7 @@ const state = {
   expenses:     [],
   recurring:    [],
   goals:        {},
+  overrides:    [],
   view:         'calendar',
   currentYear:  today.getFullYear(),
   currentMonth: today.getMonth(),
@@ -592,17 +621,23 @@ function renderDayPanel() {
 
   html += `</ul>`;
 
+  const ym = dateStr.slice(0, 7);
+
   if (recurItems.length > 0) {
     html += `<div class="panel-recurring">
       <div class="panel-recurring-title">↺ Récurrences du jour</div>`;
     for (const r of recurItems) {
       const cat = getCat(r.category);
+      const baseTask = state.recurring.find(t => t.id === r.id);
+      const hasOverride = !!r._overridden;
       html += `
         <div class="panel-recur-item" data-recur-id="${r.id}">
           <span class="op-dot" style="background:${cat.color}"></span>
           <span class="op-label" title="${r.label}">${r.label}</span>
           <span class="op-cat">${cat.label}</span>
-          <span class="op-amount ${r.type}">${r.type === 'depense' ? '-' : '+'}${fmtEUR(r.amount)}</span>
+          <span class="op-amount ${r.type}${hasOverride ? ' recur-overridden' : ''}" id="recur-amt-${r.id}">${r.type === 'depense' ? '-' : '+'}${fmtEUR(r.amount)}</span>
+          ${hasOverride ? `<button class="btn-recur-reset" data-recur-id="${r.id}" data-ym="${ym}" title="Rétablir le montant de base (${fmtEUR(baseTask.amount)})">↺ base</button>` : ''}
+          <button class="btn-edit-recur-amount" data-recur-id="${r.id}" data-ym="${ym}" data-amount="${r.amount}" data-type="${r.type}" title="Modifier pour ce mois">Modifier</button>
           <button class="btn-use-recur" data-recur-id="${r.id}" title="Ajouter comme opération">+</button>
         </div>
       `;
@@ -617,10 +652,62 @@ function renderDayPanel() {
   document.getElementById('close-panel').addEventListener('click', closePanel);
   document.getElementById('btn-add-operation').addEventListener('click', () => openAddModal(dateStr));
 
+  const recurMap = Object.fromEntries(recurItems.map(r => [r.id, r]));
+
   panel.querySelectorAll('.btn-use-recur').forEach(btn => {
     btn.addEventListener('click', () => {
-      const task = state.recurring.find(r => r.id === btn.dataset.recurId);
+      const task = recurMap[btn.dataset.recurId];
       if (task) openAddModal(dateStr, task);
+    });
+  });
+
+  panel.querySelectorAll('.btn-edit-recur-amount').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const recurId = btn.dataset.recurId;
+      const ym      = btn.dataset.ym;
+      const type    = btn.dataset.type;
+      const amtSpan = document.getElementById(`recur-amt-${recurId}`);
+      if (!amtSpan) return;
+
+      const input = document.createElement('input');
+      input.type        = 'text';
+      input.className   = 'recur-amount-input';
+      input.value       = parseFloat(btn.dataset.amount).toFixed(2).replace('.', ',');
+      input.inputMode   = 'decimal';
+
+      amtSpan.replaceWith(input);
+      btn.style.display = 'none';
+      input.focus();
+      input.select();
+
+      let saved = false;
+      const save = () => {
+        if (saved) return;
+        saved = true;
+        const newAmount = parseAmount(input.value);
+        if (newAmount > 0) {
+          setRecurOverride(recurId, ym, newAmount);
+          renderCalendar();
+        }
+        renderDayPanel();
+      };
+
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  { e.preventDefault(); save(); }
+        if (e.key === 'Escape') { e.preventDefault(); renderDayPanel(); }
+      });
+      input.addEventListener('blur', save);
+    });
+  });
+
+  panel.querySelectorAll('.btn-recur-reset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const task = state.recurring.find(t => t.id === btn.dataset.recurId);
+      if (task) {
+        setRecurOverride(btn.dataset.recurId, btn.dataset.ym, task.amount);
+        renderCalendar();
+        renderDayPanel();
+      }
     });
   });
 
@@ -1138,12 +1225,16 @@ function renderGoals() {
   const goalCats  = GOAL_CATEGORIES.map(id => getCat(id));
   const tableCats = CATEGORIES.filter(c => c.id !== 'revenus');
 
-  // Montant attendu des recurrences pour une categorie/mois donnés
+  // Montant attendu des recurrences pour une categorie/mois donnés (overrides inclus)
   function recurExpected(categoryId, year, month) {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
     return state.recurring
       .filter(t => t.category === categoryId && t.type === 'depense')
-      .reduce((sum, t) => sum + t.amount * t.days.filter(d => d <= daysInMonth).length, 0);
+      .reduce((sum, t) => {
+        const ov = getOverride(t.id, ym);
+        return sum + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= daysInMonth).length;
+      }, 0);
   }
 
   // Ligne de reglage / info des objectifs
@@ -1631,6 +1722,7 @@ async function init() {
 async function loadAndRender() {
   const overlay = document.getElementById('loading-overlay');
   overlay.classList.remove('hidden');
+  state.overrides = OverrideDB.load();
   try {
     [state.expenses, state.recurring, state.goals] = await Promise.all([DB.load(), RDB.load(), GoalDB.load()]);
   } catch {

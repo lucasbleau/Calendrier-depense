@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"C:\\Users\\lucas\\Desktop\\Calendrier-budget\" && { git diff --name-only; git diff --cached --name-only; } 2>/dev/null | grep -qE \"^(app\\.js|index\\.html|style\\.css)$\" && printf '{\"systemMessage\":\"\\u26a0 Des fichiers sources ont \\u00e9t\\u00e9 modifi\\u00e9s. Pense \\u00e0 mettre \\u00e0 jour CLAUDE.md si une fonctionnalit\\u00e9 a chang\\u00e9.\"}' || true",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

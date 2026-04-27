@@ -22,6 +22,7 @@ Visualiser, saisir et analyser les dépenses et revenus quotidiens via une inter
 - Code couleur d'intensité : la cellule s'assombrit proportionnellement au montant dépensé (max du mois = référence)
 - Mise en évidence du jour courant
 - Clic sur un jour → panneau détail : liste des opérations + section récurrences du jour + bouton ajouter/supprimer
+- Indicateur mensuel en-tête : total dépenses réelles / total objectifs (toutes catégories avec objectif défini)
 
 ### Saisie des dépenses
 
@@ -37,8 +38,11 @@ Deux modes complémentaires :
 
 ### Catégories
 
-Liste fixe avec code couleur dédié :
-Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre.
+- Liste dynamique, éditable dans l'onglet **Catégories**
+- Défauts : Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre
+- Chaque catégorie : `id` (slug généré), `label`, `color` (hex)
+- Persistance : `localStorage` clé `expense-calendar-categories-v1` (config utilisateur, pas sync serveur)
+- Suppression impossible si catégorie utilisée par des opérations ou si catégorie système (GOAL_CATEGORIES)
 
 ### Vue Statistiques
 
@@ -53,19 +57,38 @@ Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Ap
 - Chaque tâche : libellé, montant, type, catégorie, jours du mois (ex : 1er et 15)
 - Les récurrences apparaissent dans le calendrier comme rappels (↺ montant) mais ne sont **pas** comptées dans les statistiques tant qu'elles ne sont pas saisies manuellement
 - Depuis le panneau jour : bouton `+` pour créer une opération pré-remplie depuis la récurrence
+- **Affichage groupé** par catégorie, trié par montant décroissant dans chaque groupe
+- **Bandeau résumé** en haut à droite : total dépenses/mois, total revenus/mois, solde net
 
 ### Vue Objectifs
 
-- Tableau annuel (12 mois × 5 catégories) pour les catégories suivies : Courses, Essence, Dijon Loisirs, Dijon Appart, Besac Loisirs
-- Plafonds mensuels **calculés dynamiquement** pour 4 catégories d'après `CITY_DAYS` × `DAILY_RATES` :
+- Tableau annuel (12 mois × toutes catégories de dépenses) avec colonne Total
+- **Plafonds mensuels calculés dynamiquement** pour 4 catégories d'après `CITY_DAYS` × `DAILY_RATES` :
   - Courses : 8,50 €/j à Besançon
   - Essence : 4 €/j à Besançon
   - Dijon Loisirs : 23 €/j à Dijon
   - Dijon Appart : 22,80 €/j à Dijon
 - Besac Loisirs : objectif manuel (édition inline ✏)
-- Chaque cellule affiche `réel / plafond€` colorée (vert/orange/rouge)
-- Indicateur de progression du mois courant affiché dans l'en-tête du calendrier
-- Sources de données : `Jour-besac-dijon.md` (jours par ville), `prix-activité-jour.md` (tarifs)
+- **Logique d'affichage par cellule** :
+  - Si dépense réelle > 0 : `réel/dénominateur` (dénominateur = récurrence prévue > objectif > rien)
+  - Si dépense = 0 et récurrence prévue > 0 : `↺prévu/prévu` (mois passé en style atténué, mois futur/courant normal)
+  - Si dépense = 0 et pas de récurrence, mois futur : affiche l'objectif seul
+  - Sinon : `—`
+  - Colorisation : vert < 80 % du dénominateur, orange 80–100 %, rouge ≥ 100 %
+- **Colonne Total** : `réel / planifié` où planifié = Σ(récurrence ou objectif par catégorie)
+  - Barre de progression colorée
+- **Ligne de pied (tfoot)** : totaux annuels réel / planifié par colonne + grand total
+- Séparateur visuel entre dernière catégorie et colonne Total
+- Sources : `Jour-besac-dijon.md` (jours par ville), `prix-activité-jour.md` (tarifs)
+
+### Vue Catégories
+
+- Liste toutes les catégories avec swatch couleur + label éditable inline
+- **Modifier la couleur** : clic sur le rond → color picker natif (mise à jour en live)
+- **Modifier le nom** : clic sur le texte, édition directe, confirmation au blur ou Entrée
+- **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter`
+- **Supprimer** : ✕ actif uniquement si catégorie non système et non utilisée par des opérations
+- Modifications propagées instantanément aux dropdowns des modals
 
 ### Authentification
 
@@ -110,7 +133,7 @@ type Expense = {
   label: string;
   amount: number;        // valeur absolue, toujours positive
   type: 'depense' | 'revenu';
-  category: string;      // id de catégorie (cf. liste fixe)
+  category: string;      // id de catégorie
 };
 
 type RecurringTask = {
@@ -122,8 +145,34 @@ type RecurringTask = {
   days: number[];        // ex: [1, 15] = 1er et 15 du mois
 };
 
+type Category = {
+  id: string;            // slug généré depuis le label
+  label: string;
+  color: string;         // couleur hex
+};
+
 type Goals = Record<string, number>; // category → limite mensuelle en €
 ```
+
+### Constantes clés (app.js)
+
+| Constante | Rôle |
+|---|---|
+| `let CATEGORIES` | Liste courante des catégories (initialisée depuis défauts, surchargeable via CatDB) |
+| `GOAL_CATEGORIES` | IDs des catégories suivies dans la vue Objectifs (hardcodé) |
+| `CITY_DAYS` | Jours par mois à Besançon/Dijon pour l'année en cours |
+| `DAILY_RATES` | Tarif journalier par catégorie et ville |
+| `CATEGORY_KEYWORDS` | Mots-clés pour l'auto-détection de catégorie à l'import CSV |
+
+### Clés localStorage
+
+| Clé | Contenu |
+|---|---|
+| `expense-calendar-data-v1` | `Expense[]` |
+| `expense-calendar-recurring-v1` | `RecurringTask[]` |
+| `expense-calendar-goals-v1` | `Goals` |
+| `expense-calendar-categories-v1` | `Category[]` (si modifié, sinon défauts hardcodés) |
+| `expense-calendar-auth-v1` | Token d'auth (sessionStorage) |
 
 ### Conventions UI
 
@@ -143,6 +192,8 @@ Deux modes détectés automatiquement (`IS_DEPLOYED` dans `app.js`) :
 `apiFetch()` injecte automatiquement le header `x-auth-token` sur toutes les requêtes API.
 
 La base est une **Prisma Postgres** (`db.prisma.io:5432`) accessible via `POSTGRES_URL`. Le driver `pg` est utilisé avec `ssl: { rejectUnauthorized: false }`.
+
+Les **catégories** sont toujours en localStorage (même en mode déployé) car c'est de la configuration utilisateur, pas des données financières.
 
 ### Tables SQL (cf. `schema.sql`)
 
@@ -183,6 +234,7 @@ Browser → /api/goals        → Postgres (goals)           ← token requis
 ├── package.json
 ├── schema.sql
 ├── .gitignore
+├── CLAUDE.md
 └── api/
     ├── auth.js
     ├── expenses.js
@@ -220,6 +272,7 @@ Browser → /api/goals        → Postgres (goals)           ← token requis
 - Format monétaire et dates toujours via les helpers — ne jamais réimplémenter inline
 - Pas de commentaires sauf si le WHY est non-évident
 - Dual-mode storage : toujours vérifier `IS_DEPLOYED` avant tout appel réseau ou accès localStorage
+- **Catégories** : toujours lire depuis `CATEGORIES` (variable `let`, peut être surchargée par CatDB), jamais hardcoder un id de catégorie sauf dans `GOAL_CATEGORIES`
 
 ## Hors scope
 

@@ -489,7 +489,7 @@ function renderCalendar() {
     if (totalPlanned > 0) {
       const totalSpent = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
       const pct = totalSpent / totalPlanned;
-      const cls = pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
+      const cls = pct > 1 ? 'over' : pct >= 1 ? 'ok' : pct >= 0.8 ? 'warn' : 'ok';
       goalIndicator.textContent = `${fmtCompact(totalSpent)} / ${fmtCompact(totalPlanned)}`;
       goalIndicator.className = `month-goal-indicator ${cls}`;
     } else {
@@ -1319,7 +1319,7 @@ function renderGoals() {
 
     const rowActual = amounts.reduce((s, a) => s + a, 0);
     const pct       = rowPlanned > 0 ? rowActual / rowPlanned : 0;
-    const totalCls  = rowPlanned > 0 ? (pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok') : '';
+    const totalCls  = rowPlanned > 0 ? (pct > 1 ? 'over' : pct >= 1 ? 'ok' : pct >= 0.8 ? 'warn' : 'ok') : '';
 
     html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
     html += `<td class="gcell-month">${MONTHS_SHORT[m]}</td>`;
@@ -1335,14 +1335,14 @@ function renderGoals() {
         // Récurrence : montant réel = transactions + récurrence
         const total = amount + r;
         const p = total / r;
-        cls     = amount === 0 ? 'ok' : (p > 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok');
+        cls     = amount === 0 ? 'ok' : (p > 1 ? 'over' : p >= 1 ? 'ok' : p >= 0.8 ? 'warn' : 'ok');
         display = fmtCompact(total);
         limitStr = `<span class="gcell-lim">/${fmtCompact(r)}</span>`;
       } else if (amount > 0) {
         display = fmtCompact(amount);
         if (denom) {
           const p = amount / denom;
-          cls = p > 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok';
+          cls = p > 1 ? 'over' : p >= 1 ? 'ok' : p >= 0.8 ? 'warn' : 'ok';
           limitStr = `<span class="gcell-lim">/${fmtCompact(denom)}</span>`;
         }
       } else if (goal && !isPast) {
@@ -1383,11 +1383,11 @@ function renderGoals() {
   const grandPlanned = colData.reduce((s, { planned }) => s + planned, 0);
 
   const tFootCells = colData.map(({ actual, planned }) => {
-    const cls = planned > 0 ? (actual > planned ? 'over' : actual >= planned * 0.8 ? 'warn' : 'ok') : '';
+    const cls = planned > 0 ? (actual > planned ? 'over' : actual >= planned ? 'ok' : actual >= planned * 0.8 ? 'warn' : 'ok') : '';
     const lim = planned > 0 ? `<span class="gcell-lim">/${fmtCompact(planned)}</span>` : '';
     return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}${lim}</td>`;
   }).join('');
-  const grandCls = grandPlanned > 0 ? (grandActual > grandPlanned ? 'over' : grandActual >= grandPlanned * 0.8 ? 'warn' : 'ok') : '';
+  const grandCls = grandPlanned > 0 ? (grandActual > grandPlanned ? 'over' : grandActual >= grandPlanned ? 'ok' : grandActual >= grandPlanned * 0.8 ? 'warn' : 'ok') : '';
   const grandLim = grandPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(grandPlanned)}</span>` : '';
 
   html += `</tbody>

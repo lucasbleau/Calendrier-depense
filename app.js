@@ -269,9 +269,12 @@ function getOverride(recurId, ym) {
 
 function setRecurOverride(recurId, ym, amount) {
   state.overrides = state.overrides.filter(o => !(o.recurId === recurId && o.yearMonth === ym));
-  const task = state.recurring.find(t => t.id === recurId);
-  if (task && amount !== task.amount) {
-    state.overrides.push({ recurId, yearMonth: ym, amount });
+  if (amount !== null) {
+    const task = state.recurring.find(t => t.id === recurId);
+    // Stocker même si égal à la base (0 = override explicite "pas ce mois")
+    if (task && (amount !== task.amount || amount === 0)) {
+      state.overrides.push({ recurId, yearMonth: ym, amount });
+    }
   }
   OverrideDB.save(state.overrides);
 }
@@ -684,11 +687,15 @@ function renderDayPanel() {
       const save = () => {
         if (saved) return;
         saved = true;
-        const newAmount = parseAmount(input.value);
-        if (newAmount > 0) {
+        const raw = input.value.trim();
+        if (raw === '' || raw === '-') {
+          // Champ vide = supprime l'override, retour au montant de base
+          setRecurOverride(recurId, ym, null);
+        } else {
+          const newAmount = parseAmount(raw);
           setRecurOverride(recurId, ym, newAmount);
-          renderCalendar();
         }
+        renderCalendar();
         renderDayPanel();
       };
 
@@ -702,12 +709,9 @@ function renderDayPanel() {
 
   panel.querySelectorAll('.btn-recur-reset').forEach(btn => {
     btn.addEventListener('click', () => {
-      const task = state.recurring.find(t => t.id === btn.dataset.recurId);
-      if (task) {
-        setRecurOverride(btn.dataset.recurId, btn.dataset.ym, task.amount);
-        renderCalendar();
-        renderDayPanel();
-      }
+      setRecurOverride(btn.dataset.recurId, btn.dataset.ym, null);
+      renderCalendar();
+      renderDayPanel();
     });
   });
 

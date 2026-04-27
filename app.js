@@ -1354,9 +1354,9 @@ function renderGoals() {
       html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
     });
 
-    const totalDisplay = rowActual > 0 ? fmtCompact(rowActual) : '—';
+    const totalDisplay = rowActual > 0 ? fmtEUR(rowActual) : '—';
     const barWidth     = rowPlanned > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
-    const totalLimStr  = rowPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(rowPlanned)}</span>` : '';
+    const totalLimStr  = rowPlanned > 0 ? `<span class="gcell-lim">/${fmtEUR(rowPlanned)}</span>` : '';
     html += `<td class="gcell-total">
       <div class="gcell-total-inner">
         <span class="${totalCls}">${totalDisplay}${totalLimStr}</span>
@@ -1388,7 +1388,7 @@ function renderGoals() {
     return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}${lim}</td>`;
   }).join('');
   const grandCls = grandPlanned > 0 ? (grandActual > grandPlanned ? 'over' : grandActual >= grandPlanned ? 'ok' : grandActual >= grandPlanned * 0.8 ? 'warn' : 'ok') : '';
-  const grandLim = grandPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(grandPlanned)}</span>` : '';
+  const grandLim = grandPlanned > 0 ? `<span class="gcell-lim">/${fmtEUR(grandPlanned)}</span>` : '';
 
   html += `</tbody>
     <tfoot>
@@ -1397,7 +1397,7 @@ function renderGoals() {
         ${tFootCells}
         <td class="gcell-total">
           <div class="gcell-total-inner">
-            <span class="${grandCls}">${grandActual > 0 ? fmtCompact(grandActual) : '—'}${grandLim}</span>
+            <span class="${grandCls}">${grandActual > 0 ? fmtEUR(grandActual) : '—'}${grandLim}</span>
           </div>
         </td>
       </tr>

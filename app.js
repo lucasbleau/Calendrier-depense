@@ -490,7 +490,7 @@ function renderCalendar() {
       const totalSpent = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
       const pct = totalSpent / totalPlanned;
       const cls = pct > 1 ? 'over' : pct >= 1 ? 'ok' : pct >= 0.8 ? 'warn' : 'ok';
-      goalIndicator.textContent = `${fmtCompact(totalSpent)} / ${fmtCompact(totalPlanned)}`;
+      goalIndicator.textContent = `${fmtEUR(totalSpent)} / ${fmtEUR(totalPlanned)}`;
       goalIndicator.className = `month-goal-indicator ${cls}`;
     } else {
       goalIndicator.className = 'month-goal-indicator hidden';

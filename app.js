@@ -480,8 +480,18 @@ function renderCalendar() {
 
   const goalIndicator = document.getElementById('month-goal-indicator');
   if (goalIndicator) {
-    const totalSpent  = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
-    const totalEarned = monthData.filter(e => e.type === 'revenu').reduce((s, e) => s + e.amount, 0);
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const ym = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+    const recurDep = state.recurring.filter(t => t.type === 'depense').reduce((s, t) => {
+      const ov = getOverride(t.id, ym);
+      return s + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= daysInMonth).length;
+    }, 0);
+    const recurRev = state.recurring.filter(t => t.type === 'revenu').reduce((s, t) => {
+      const ov = getOverride(t.id, ym);
+      return s + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= daysInMonth).length;
+    }, 0);
+    const totalSpent  = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0) + recurDep;
+    const totalEarned = monthData.filter(e => e.type === 'revenu').reduce((s, e) => s + e.amount, 0) + recurRev;
     const totalPlanned = CATEGORIES.filter(c => c.id !== 'revenus').reduce((s, cat) => {
       const r = recurExpected(cat.id, currentYear, currentMonth);
       const g = getGoalForMonth(cat.id, currentYear, currentMonth);

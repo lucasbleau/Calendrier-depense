@@ -1184,7 +1184,10 @@ function renderGoals() {
       return s + (r > 0 ? r : (g || 0));
     }, 0);
 
-    const rowActual = amounts.reduce((s, a) => s + a, 0);
+    const rowActual = tableCats.reduce((s, cat, i) => {
+      const r = recurExpected(cat.id, currentYear, m);
+      return s + amounts[i] + (r > 0 ? r : 0);
+    }, 0);
     const pct       = rowPlanned > 0 ? rowActual / rowPlanned : 0;
     const totalCls  = rowPlanned > 0 ? (pct > 1 ? 'over' : pct >= 1 ? 'ok' : pct >= 0.8 ? 'warn' : 'ok') : '';
 
@@ -1242,11 +1245,12 @@ function renderGoals() {
   const colData = tableCats.map(cat => {
     let actual = 0, planned = 0;
     for (let m2 = 0; m2 < 12; m2++) {
-      actual += getMonthData(currentYear, m2)
+      const manualDep = getMonthData(currentYear, m2)
         .filter(e => e.type === 'depense' && e.category === cat.id)
         .reduce((s, e) => s + e.amount, 0);
       const r = recurExpected(cat.id, currentYear, m2);
       const g = getGoalForMonth(cat.id, currentYear, m2);
+      actual  += manualDep + (r > 0 ? r : 0);
       planned += r > 0 ? r : (g || 0);
     }
     return { actual, planned };

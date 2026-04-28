@@ -478,20 +478,13 @@ function renderCalendar() {
 
   const monthData = getMonthData(currentYear, currentMonth);
 
-  // Indicateur objectif mensuel — même calcul que la colonne Total de l'onglet Objectifs
   const goalIndicator = document.getElementById('month-goal-indicator');
   if (goalIndicator) {
-    const totalPlanned = CATEGORIES.filter(c => c.id !== 'revenus').reduce((s, cat) => {
-      const r = recurExpected(cat.id, currentYear, currentMonth);
-      const g = getGoalForMonth(cat.id, currentYear, currentMonth);
-      return s + (r > 0 ? r : (g || 0));
-    }, 0);
-    if (totalPlanned > 0) {
-      const totalSpent = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
-      const pct = totalSpent / totalPlanned;
-      const cls = pct > 1 ? 'over' : pct >= 1 ? 'ok' : pct >= 0.8 ? 'warn' : 'ok';
-      goalIndicator.textContent = `${fmtEUR(totalSpent)} / ${fmtEUR(totalPlanned)}`;
-      goalIndicator.className = `month-goal-indicator ${cls}`;
+    const totalSpent  = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
+    const totalEarned = monthData.filter(e => e.type === 'revenu').reduce((s, e) => s + e.amount, 0);
+    if (totalSpent > 0 || totalEarned > 0) {
+      goalIndicator.textContent = `${fmtEUR(totalSpent)} / +${fmtEUR(totalEarned)}`;
+      goalIndicator.className = 'month-goal-indicator';
     } else {
       goalIndicator.className = 'month-goal-indicator hidden';
     }

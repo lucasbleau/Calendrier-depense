@@ -482,9 +482,16 @@ function renderCalendar() {
   if (goalIndicator) {
     const totalSpent  = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0);
     const totalEarned = monthData.filter(e => e.type === 'revenu').reduce((s, e) => s + e.amount, 0);
+    const totalPlanned = CATEGORIES.filter(c => c.id !== 'revenus').reduce((s, cat) => {
+      const r = recurExpected(cat.id, currentYear, currentMonth);
+      const g = getGoalForMonth(cat.id, currentYear, currentMonth);
+      return s + (r > 0 ? r : (g || 0));
+    }, 0);
     if (totalSpent > 0 || totalEarned > 0) {
+      const pct = totalPlanned > 0 ? totalSpent / totalPlanned : 0;
+      const cls = totalPlanned > 0 ? (pct > 1 ? 'over' : pct >= 1 ? 'ok' : pct >= 0.8 ? 'warn' : 'ok') : '';
       goalIndicator.textContent = `${fmtEUR(totalSpent)} / +${fmtEUR(totalEarned)}`;
-      goalIndicator.className = 'month-goal-indicator';
+      goalIndicator.className = `month-goal-indicator ${cls}`;
     } else {
       goalIndicator.className = 'month-goal-indicator hidden';
     }

@@ -761,149 +761,6 @@ function closePanel() {
   renderCalendar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rendu : Statistiques
-// ─────────────────────────────────────────────────────────────────────────────
-
-let barChart   = null;
-let donutChart = null;
-
-function renderStats() {
-  const { currentYear, currentMonth } = state;
-
-  document.getElementById('stats-month-title').textContent = `${MONTHS[currentMonth]} ${currentYear}`;
-  document.getElementById('kpi-year-label').textContent   = currentYear;
-
-  const monthData = getMonthData(currentYear, currentMonth);
-  const { depenses: mDep, revenus: mRev } = sumByType(monthData);
-  const mSolde = mRev - mDep;
-
-  document.getElementById('kpi-depenses').textContent = fmtEUR(mDep);
-  document.getElementById('kpi-revenus').textContent  = fmtEUR(mRev);
-  document.getElementById('kpi-solde').textContent    = fmtEUR(mSolde);
-  document.getElementById('kpi-solde').className      = 'kpi-value ' + (mSolde >= 0 ? 'positive' : 'negative');
-
-  const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-  const prevYear  = currentMonth === 0 ? currentYear - 1 : currentYear;
-  const { depenses: pDep } = sumByType(getMonthData(prevYear, prevMonth));
-  const diffEl = document.getElementById('kpi-diff');
-  if (pDep > 0) {
-    const pct = ((mDep - pDep) / pDep) * 100;
-    diffEl.textContent = (pct > 0 ? '+' : '') + pct.toFixed(1) + '% vs mois préc.';
-    diffEl.className   = 'kpi-diff ' + (pct > 0 ? 'negative' : 'positive');
-  } else {
-    diffEl.textContent = '';
-  }
-
-  let yDep = 0, yRev = 0;
-  for (let m = 0; m < 12; m++) {
-    const { depenses, revenus } = sumByType(getMonthData(currentYear, m));
-    yDep += depenses;
-    yRev += revenus;
-  }
-  document.getElementById('kpi-year-dep').textContent   = fmtEUR(yDep);
-  document.getElementById('kpi-year-rev').textContent   = fmtEUR(yRev);
-  document.getElementById('kpi-year-solde').textContent = fmtEUR(yRev - yDep);
-  document.getElementById('kpi-year-solde').className   = 'kpi-value ' + ((yRev - yDep) >= 0 ? 'positive' : 'negative');
-
-  const barDep = [], barRev = [];
-  for (let m = 0; m < 12; m++) {
-    const { depenses, revenus } = sumByType(getMonthData(currentYear, m));
-    barDep.push(depenses);
-    barRev.push(revenus);
-  }
-
-  const barCtx = document.getElementById('bar-chart').getContext('2d');
-  if (barChart) barChart.destroy();
-  barChart = new Chart(barCtx, {
-    type: 'bar',
-    data: {
-      labels: MONTHS_SHORT,
-      datasets: [
-        { label: 'Dépenses', data: barDep, backgroundColor: '#B85C38', borderRadius: 4 },
-        { label: 'Revenus',  data: barRev, backgroundColor: '#4A7C59', borderRadius: 4 },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'top', labels: { font: { family: 'Inter', size: 12 }, color: '#7A6A52' } },
-        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label} : ${fmtEUR(ctx.raw)}` } },
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: { callback: v => fmtCompact(v), font: { family: 'JetBrains Mono', size: 11 }, color: '#A8977E' },
-          grid: { color: '#E4DECE' },
-        },
-        x: {
-          ticks: { font: { family: 'Inter', size: 12 }, color: '#7A6A52' },
-          grid: { display: false },
-        },
-      },
-    },
-  });
-
-  const catTotals = {};
-  for (const e of monthData) {
-    if (e.type === 'depense') catTotals[e.category] = (catTotals[e.category] || 0) + e.amount;
-  }
-
-  const catEntries = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
-  const total = catEntries.reduce((s, [, v]) => s + v, 0);
-
-  const donutCanvas = document.getElementById('donut-chart');
-  const catListEl   = document.getElementById('cat-list');
-  const catEmpty    = document.getElementById('cat-empty');
-
-  if (!catEntries.length) {
-    donutCanvas.classList.add('hidden');
-    catListEl.classList.add('hidden');
-    catEmpty.classList.remove('hidden');
-  } else {
-    donutCanvas.classList.remove('hidden');
-    catListEl.classList.remove('hidden');
-    catEmpty.classList.add('hidden');
-
-    const donutCtx = donutCanvas.getContext('2d');
-    if (donutChart) donutChart.destroy();
-    donutChart = new Chart(donutCtx, {
-      type: 'doughnut',
-      data: {
-        labels: catEntries.map(([id]) => getCat(id).label),
-        datasets: [{
-          data:            catEntries.map(([, v]) => v),
-          backgroundColor: catEntries.map(([id]) => getCat(id).color),
-          borderWidth: 2,
-          borderColor: '#FAF7F1',
-        }],
-      },
-      options: {
-        responsive: true,
-        cutout: '66%',
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: ctx => `${ctx.label} : ${fmtEUR(ctx.raw)} (${((ctx.raw / total) * 100).toFixed(1)}%)` } },
-        },
-      },
-    });
-
-    catListEl.innerHTML = catEntries.map(([id, amount]) => {
-      const cat = getCat(id);
-      const pct = (amount / total * 100).toFixed(1);
-      return `
-        <li class="cat-item">
-          <span class="cat-dot" style="background:${cat.color}"></span>
-          <span class="cat-name">${cat.label}</span>
-          <div class="cat-right">
-            <span class="cat-amount">${fmtEUR(amount)}</span>
-            <span class="cat-pct">${pct}%</span>
-          </div>
-        </li>
-      `;
-    }).join('');
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendu : Vue Récurrences
@@ -1585,7 +1442,6 @@ function updateCatColor(id, color) {
   cat.color = color;
   CatDB.save(CATEGORIES);
   if (state.view === 'calendar') renderCalendar();
-  if (state.view === 'stats')    renderStats();
   if (state.view === 'goals')    renderGoals();
 }
 
@@ -1614,13 +1470,12 @@ function deleteCategory(id) {
 
 function setView(view) {
   state.view = view;
-  ['calendar', 'stats', 'recurring', 'goals', 'categories'].forEach(v => {
+  ['calendar', 'recurring', 'goals', 'categories'].forEach(v => {
     document.getElementById(`view-${v}`).classList.toggle('hidden', view !== v);
     document.getElementById(`btn-view-${v}`).classList.toggle('active', view === v);
     document.getElementById(`btn-view-${v}`).setAttribute('aria-selected', view === v);
   });
 
-  if (view === 'stats') renderStats();
   if (view === 'recurring') renderRecurring();
   if (view === 'goals') renderGoals();
   if (view === 'categories') renderCategories();
@@ -1691,7 +1546,6 @@ async function init() {
 
   // Onglets
   document.getElementById('btn-view-calendar').addEventListener('click',    () => setView('calendar'));
-  document.getElementById('btn-view-stats').addEventListener('click',       () => setView('stats'));
   document.getElementById('btn-view-recurring').addEventListener('click',   () => setView('recurring'));
   document.getElementById('btn-view-goals').addEventListener('click',       () => setView('goals'));
   document.getElementById('btn-view-categories').addEventListener('click',  () => setView('categories'));

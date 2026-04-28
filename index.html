@@ -17,7 +17,6 @@
 
     <div class="view-tabs" role="tablist">
       <button id="btn-view-calendar" class="active" role="tab" aria-selected="true">Calendrier</button>
-      <button id="btn-view-stats" role="tab" aria-selected="false">Statistiques</button>
       <button id="btn-view-recurring" role="tab" aria-selected="false">Récurrences</button>
       <button id="btn-view-goals" role="tab" aria-selected="false">Objectifs</button>
       <button id="btn-view-categories" role="tab" aria-selected="false">Catégories</button>
@@ -51,62 +50,6 @@
 
   </div>
 
-  <!-- ─── Vue Statistiques ────────────────────────────────────────────── -->
-  <div id="view-stats" class="hidden">
-
-    <div class="stats-section">
-      <div class="stats-section-title" id="stats-month-title">Mois courant</div>
-      <div class="stats-kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Dépenses</div>
-          <div class="kpi-value depense-color" id="kpi-depenses">—</div>
-          <div class="kpi-diff" id="kpi-diff"></div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Revenus</div>
-          <div class="kpi-value revenu-color" id="kpi-revenus">—</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Solde du mois</div>
-          <div class="kpi-value" id="kpi-solde">—</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="stats-section">
-      <div class="stats-section-title">Année <span id="kpi-year-label"></span></div>
-      <div class="stats-kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Dépenses annuelles</div>
-          <div class="kpi-value depense-color" id="kpi-year-dep">—</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Revenus annuels</div>
-          <div class="kpi-value revenu-color" id="kpi-year-rev">—</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Solde annuel</div>
-          <div class="kpi-value" id="kpi-year-solde">—</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="charts-row">
-      <div class="chart-wrap">
-        <div class="chart-title">Dépenses &amp; Revenus — 12 mois</div>
-        <canvas id="bar-chart"></canvas>
-      </div>
-      <div class="chart-wrap">
-        <div class="chart-title">Répartition par catégorie</div>
-        <div class="donut-row">
-          <div class="donut-wrap"><canvas id="donut-chart"></canvas></div>
-          <ul class="cat-list" id="cat-list"></ul>
-        </div>
-        <p id="cat-empty" class="cat-empty hidden">Aucune dépense ce mois.</p>
-      </div>
-    </div>
-
-  </div>
 
   <!-- ─── Vue Récurrences ─────────────────────────────────────────────── -->
   <div id="view-recurring" class="hidden">
@@ -261,7 +204,6 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

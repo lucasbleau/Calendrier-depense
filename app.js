@@ -126,6 +126,19 @@ const DB = {
     if (!res.ok) throw new Error('Import échoué');
   },
 
+  async update(expense) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
+      return;
+    }
+    const res = await apiFetch(`/api/expenses?id=${encodeURIComponent(expense.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(expense),
+    });
+    if (!res.ok) throw new Error('Modification échouée');
+  },
+
   async remove(id) {
     if (!IS_DEPLOYED) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.expenses));
@@ -447,7 +460,8 @@ const state = {
   editingGoal:  null,
 };
 
-let modalRecurDays = [];  // jours sélectionnés dans le modal récurrence
+let modalRecurDays   = [];   // jours sélectionnés dans le modal récurrence
+let editingExpenseId = null; // id de l'opération en cours d'édition (null = création)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agrégations
@@ -658,6 +672,7 @@ function renderDayPanel() {
         <div class="op-line2">
           <span class="op-cat">${cat.label}</span>
           <span class="op-amount ${item.type}">${item.type === 'depense' ? '-' : '+'}${fmtEUR(item.amount)}</span>
+          <button class="op-edit" data-id="${item.id}" aria-label="Modifier ${item.label}">&#9998;</button>
           <button class="op-delete" data-id="${item.id}" aria-label="Supprimer ${item.label}">&#10005;</button>
         </div>
       </li>
@@ -758,6 +773,13 @@ function renderDayPanel() {
       setRecurOverride(btn.dataset.recurId, btn.dataset.ym, null);
       renderCalendar();
       renderDayPanel();
+    });
+  });
+
+  panel.querySelectorAll('.op-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const expense = state.expenses.find(e => e.id === btn.dataset.id);
+      if (expense) openAddModal(dateStr, expense, expense.id);
     });
   });
 
@@ -981,17 +1003,21 @@ async function deleteRecurring(id) {
 // Modal : Ajouter une opération
 // ─────────────────────────────────────────────────────────────────────────────
 
-function openAddModal(dateStr, prefill = null) {
+function openAddModal(dateStr, prefill = null, editId = null) {
+  editingExpenseId = editId;
   document.getElementById('add-date').value     = dateStr;
   document.getElementById('add-label').value    = prefill?.label    || '';
   document.getElementById('add-amount').value   = prefill?.amount   || '';
   document.getElementById('add-type').value     = prefill?.type     || 'depense';
   document.getElementById('add-category').value = prefill?.category || 'autre';
+  document.getElementById('modal-add-title').textContent = editId ? 'Modifier l\'opération' : 'Nouvelle opération';
   document.getElementById('modal-add').classList.remove('hidden');
   document.getElementById('add-label').focus();
 }
 
 function closeAddModal() {
+  editingExpenseId = null;
+  document.getElementById('modal-add-title').textContent = 'Nouvelle opération';
   document.getElementById('modal-add').classList.add('hidden');
 }
 
@@ -1004,6 +1030,25 @@ async function saveNewExpense() {
 
   if (!label || !amount || !date) {
     document.getElementById(label ? 'add-amount' : 'add-label').focus();
+    return;
+  }
+
+  if (editingExpenseId) {
+    const idx = state.expenses.findIndex(e => e.id === editingExpenseId);
+    if (idx === -1) return;
+    const prev = { ...state.expenses[idx] };
+    state.expenses[idx] = { ...prev, label, amount, type, category };
+    closeAddModal();
+    renderCalendar();
+    renderDayPanel();
+    try {
+      await DB.update(state.expenses[idx]);
+    } catch {
+      state.expenses[idx] = prev;
+      renderCalendar();
+      renderDayPanel();
+      showToast('Erreur lors de la modification');
+    }
     return;
   }
 

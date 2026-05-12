@@ -463,6 +463,7 @@ body {
 .op-amount.depense { color: var(--depense); }
 .op-amount.revenu  { color: var(--revenu); }
 
+.op-edit,
 .op-delete {
   background: none;
   border: none;
@@ -474,7 +475,9 @@ body {
   transition: opacity 0.15s, color 0.15s;
   line-height: 1;
 }
+.operation-item:hover .op-edit,
 .operation-item:hover .op-delete { opacity: 1; }
+.op-edit:hover   { color: var(--accent); }
 .op-delete:hover { color: var(--depense); }
 
 .btn-add-op {

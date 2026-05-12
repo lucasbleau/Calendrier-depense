@@ -4,7 +4,7 @@ const pool = new Pool({ connectionString: process.env.POSTGRES_URL, ssl: { rejec
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-auth-token');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -36,6 +36,19 @@ module.exports = async function handler(req, res) {
       }
 
       return res.json({ ok: true, count: items.length });
+    }
+
+    // ── PUT : modifier une dépense existante ────────────────────────────
+    if (req.method === 'PUT') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Paramètre id requis' });
+
+      const { label, amount, type, category } = req.body;
+      await client.query(
+        'UPDATE expenses SET label = $1, amount = $2, type = $3, category = $4 WHERE id = $5',
+        [label, amount, type, category, id]
+      );
+      return res.json({ ok: true });
     }
 
     // ── DELETE : supprimer une dépense ───────────────────────────────────

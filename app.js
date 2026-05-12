@@ -1249,11 +1249,11 @@ function renderGoals() {
                .reduce((s, e) => s + e.amount, 0)
     );
 
-    // Budget planifié : récurrence prioritaire, sinon objectif
+    // Budget planifié : max(objectif, récurrence) pour ne pas descendre sous l'objectif fixé
     const rowPlanned = tableCats.reduce((s, cat) => {
       const r = recurExpected(cat.id, currentYear, m);
       const g = getGoalForMonth(cat.id, currentYear, m);
-      return s + (r > 0 ? r : (g || 0));
+      return s + (g ? Math.max(g, r) : r);
     }, 0);
 
     const rowActual = tableCats.reduce((s, cat, i) => {
@@ -1270,16 +1270,16 @@ function renderGoals() {
       const cat   = tableCats[i];
       const r     = recurExpected(cat.id, currentYear, m);
       const goal  = getGoalForMonth(cat.id, currentYear, m);
-      const denom = r > 0 ? r : goal; // dénominateur : récurrence prioritaire, sinon objectif
+      const denom = goal ? Math.max(goal, r) : (r || null); // jamais descendre sous l'objectif fixé
       let cls = '', display = '', limitStr = '';
 
       if (r > 0) {
         // Récurrence : montant réel = transactions + récurrence
         const total = amount + r;
-        const p = total / r;
-        cls     = amount === 0 ? 'ok' : (p > 1 ? 'over' : p >= 1 ? 'ok' : p >= 0.8 ? 'warn' : 'ok');
+        const p = denom > 0 ? total / denom : 0;
+        cls     = amount === 0 ? 'ok' : (p > 1 ? 'over' : p >= 0.8 ? 'warn' : 'ok');
         display = fmtCompact(total);
-        limitStr = `<span class="gcell-lim">/${fmtCompact(r)}</span>`;
+        limitStr = denom ? `<span class="gcell-lim">/${fmtCompact(denom)}</span>` : '';
       } else if (amount > 0) {
         display = fmtCompact(amount);
         if (denom) {
@@ -1323,7 +1323,7 @@ function renderGoals() {
       const r = recurExpected(cat.id, currentYear, m2);
       const g = getGoalForMonth(cat.id, currentYear, m2);
       actual  += manualDep + (r > 0 ? r : 0);
-      planned += r > 0 ? r : (g || 0);
+      planned += g ? Math.max(g, r) : r;
     }
     return { actual, planned };
   });

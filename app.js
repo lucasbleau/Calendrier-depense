@@ -218,14 +218,41 @@ const OverrideDB = {
   },
 };
 
-// Categories toujours en localStorage (config utilisateur, pas de données financières)
 const CatDB = {
-  load() {
-    const raw = localStorage.getItem(CATEGORIES_KEY);
-    return raw ? JSON.parse(raw) : null;
+  async load() {
+    if (!IS_DEPLOYED) {
+      const raw = localStorage.getItem(CATEGORIES_KEY);
+      return raw ? JSON.parse(raw) : null;
+    }
+    const res = await apiFetch('/api/categories');
+    if (!res.ok) return null;
+    const cats = await res.json();
+    return cats.length ? cats : null;
   },
-  save(cats) {
-    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(cats));
+  async upsert(cat) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+      return;
+    }
+    const res = await apiFetch('/api/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cat),
+    });
+    if (!res.ok) throw new Error('Sauvegarde catégorie échouée');
+  },
+  async remove(id) {
+    if (!IS_DEPLOYED) {
+      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+      return;
+    }
+    const res = await apiFetch(`/api/categories?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Suppression échouée');
+    }
   },
 };
 
@@ -1416,7 +1443,7 @@ function renderCategories() {
   });
 }
 
-function addCategory() {
+async function addCategory() {
   const labelInput = document.getElementById('new-cat-label');
   const colorInput = document.getElementById('new-cat-color');
   const label = labelInput.value.trim();
@@ -1432,37 +1459,64 @@ function addCategory() {
     return;
   }
 
-  CATEGORIES.push({ id, label, color: colorInput.value });
-  CatDB.save(CATEGORIES);
+  const newCat = { id, label, color: colorInput.value };
+  CATEGORIES.push(newCat);
+  try {
+    await CatDB.upsert(newCat);
+  } catch {
+    showToast('Erreur lors de la sauvegarde');
+    CATEGORIES.pop();
+    return;
+  }
   populateCategoryDropdowns();
   labelInput.value = '';
   renderCategories();
   showToast(`Catégorie « ${label} » ajoutée`);
 }
 
-function updateCatColor(id, color) {
+async function updateCatColor(id, color) {
   const cat = CATEGORIES.find(c => c.id === id);
   if (!cat || cat.color === color) return;
+  const prev = cat.color;
   cat.color = color;
-  CatDB.save(CATEGORIES);
+  try {
+    await CatDB.upsert(cat);
+  } catch {
+    cat.color = prev;
+    showToast('Erreur lors de la sauvegarde');
+    return;
+  }
   if (state.view === 'calendar') renderCalendar();
   if (state.view === 'goals')    renderGoals();
 }
 
-function updateCatLabel(id, label) {
+async function updateCatLabel(id, label) {
   label = label.trim();
   if (!label) { renderCategories(); return; }
   const cat = CATEGORIES.find(c => c.id === id);
   if (!cat || cat.label === label) return;
+  const prev = cat.label;
   cat.label = label;
-  CatDB.save(CATEGORIES);
+  try {
+    await CatDB.upsert(cat);
+  } catch {
+    cat.label = prev;
+    showToast('Erreur lors de la sauvegarde');
+    renderCategories();
+    return;
+  }
   populateCategoryDropdowns();
   renderCategories();
 }
 
-function deleteCategory(id) {
+async function deleteCategory(id) {
+  try {
+    await CatDB.remove(id);
+  } catch (err) {
+    showToast(err.message || 'Suppression échouée');
+    return;
+  }
   CATEGORIES = CATEGORIES.filter(c => c.id !== id);
-  CatDB.save(CATEGORIES);
   populateCategoryDropdowns();
   renderCategories();
   showToast('Catégorie supprimée');
@@ -1523,9 +1577,9 @@ async function init() {
     selYear.appendChild(opt);
   }
 
-  // Catégories — charger depuis localStorage si sauvegardé
-  const savedCats = CatDB.load();
-  if (savedCats && savedCats.length > 0) CATEGORIES = savedCats;
+  // Catégories — localStorage pour affichage immédiat avant auth
+  const cachedCats = localStorage.getItem(CATEGORIES_KEY);
+  if (cachedCats) { try { CATEGORIES = JSON.parse(cachedCats); } catch {} }
   populateCategoryDropdowns();
 
   // Navigation
@@ -1629,6 +1683,17 @@ async function loadAndRender() {
   } finally {
     overlay.classList.add('hidden');
   }
+
+  // Catégories depuis DB (après auth), avec mise en cache localStorage
+  try {
+    const savedCats = await CatDB.load();
+    if (savedCats && savedCats.length > 0) {
+      CATEGORIES = savedCats;
+      if (IS_DEPLOYED) localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+      populateCategoryDropdowns();
+    }
+  } catch {}
+
   renderCalendar();
 }
 

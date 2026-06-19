@@ -477,10 +477,7 @@ function renderCalendar() {
 
   const goalIndicator = $('month-goal-indicator');
   if (goalIndicator) {
-    const recurDep = recurMonthTotal('depense', currentYear, currentMonth);
-    const recurRev = recurMonthTotal('revenu',  currentYear, currentMonth);
-    const totalSpent  = monthData.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0) + recurDep;
-    const totalEarned = monthData.filter(e => e.type === 'revenu').reduce((s, e) => s + e.amount, 0) + recurRev;
+    const { spent: totalSpent, earned: totalEarned } = monthRealTotals(currentYear, currentMonth);
     const totalPlanned = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY).reduce((s, cat) => {
       const r = recurExpected(cat.id, currentYear, currentMonth);
       const g = getGoalForMonth(cat.id, currentYear, currentMonth);
@@ -797,8 +794,9 @@ function renderRecurring() {
   const container = $('recurring-list');
   const summary   = $('recurring-summary');
 
-  const totalDep = state.recurring.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
-  const totalRev = state.recurring.filter(t => t.type === 'revenu').reduce((s, t) => s + t.amount, 0);
+  // Total mensuel = montant × nombre de jours d'occurrence dans le mois
+  const totalDep = state.recurring.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount * t.days.length, 0);
+  const totalRev = state.recurring.filter(t => t.type === 'revenu').reduce((s, t) => s + t.amount * t.days.length, 0);
   const solde    = totalRev - totalDep;
   const soldeCls = solde >= 0 ? 'revenu-color' : 'depense-color';
 
@@ -834,17 +832,15 @@ function renderRecurring() {
   });
   Object.values(groups).forEach(tasks => tasks.sort((a, b) => b.amount - a.amount));
 
-  // Trier les groupes par total dépenses décroissant
-  const sortedGroups = Object.entries(groups).sort(([, a], [, b]) => {
-    const sumA = a.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
-    const sumB = b.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
-    return sumB - sumA;
-  });
+  // Trier les groupes par total dépenses mensuel décroissant
+  const monthlyDep = tasks => tasks.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount * t.days.length, 0);
+  const monthlyRev = tasks => tasks.filter(t => t.type === 'revenu').reduce((s, t) => s + t.amount * t.days.length, 0);
+  const sortedGroups = Object.entries(groups).sort(([, a], [, b]) => monthlyDep(b) - monthlyDep(a));
 
   container.innerHTML = sortedGroups.map(([catId, tasks]) => {
     const cat      = getCat(catId);
-    const catDep   = tasks.filter(t => t.type === 'depense').reduce((s, t) => s + t.amount, 0);
-    const catRev   = tasks.filter(t => t.type === 'revenu').reduce((s, t) => s + t.amount, 0);
+    const catDep   = monthlyDep(tasks);
+    const catRev   = monthlyRev(tasks);
     const totalStr = [
       catDep > 0 ? `−${fmtEUR(catDep)}/mois` : '',
       catRev > 0 ? `+${fmtEUR(catRev)}/mois` : '',
@@ -1172,6 +1168,15 @@ function recurMonthTotal(type, year, month) {
       const ov = getOverride(t.id, ym);
       return s + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= dim).length;
     }, 0);
+}
+
+// Règle unique des totaux d'un mois : opérations saisies + récurrences attendues.
+// Utilisé par l'indicateur du calendrier et la page Statistiques (cohérence).
+function monthRealTotals(year, month) {
+  const md = getMonthData(year, month);
+  const spent  = md.filter(e => e.type === 'depense').reduce((s, e) => s + e.amount, 0) + recurMonthTotal('depense', year, month);
+  const earned = md.filter(e => e.type === 'revenu').reduce((s, e) => s + e.amount, 0) + recurMonthTotal('revenu',  year, month);
+  return { spent, earned };
 }
 
 function renderGoals() {
@@ -1644,26 +1649,30 @@ function renderSearchResults() {
 // Vue Statistiques (graphes SVG sur-mesure)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Totaux mensuels (dépenses/revenus réels) pour une année
+// Totaux mensuels réels (saisies + récurrences) pour une année — même règle que le calendrier
 function yearMonthlyTotals(year) {
   const dep = Array(12).fill(0), rev = Array(12).fill(0);
-  const prefix = String(year) + '-';
-  for (const e of state.expenses) {
-    if (!e.date.startsWith(prefix)) continue;
-    const m = Number(e.date.slice(5, 7)) - 1;
-    if (m < 0 || m > 11) continue;
-    if (e.type === 'depense') dep[m] += e.amount; else rev[m] += e.amount;
+  for (let m = 0; m < 12; m++) {
+    const { spent, earned } = monthRealTotals(year, m);
+    dep[m] = spent;
+    rev[m] = earned;
   }
   return { dep, rev };
 }
 
-// Totaux de dépenses par catégorie pour une année
+// Totaux de dépenses par catégorie pour une année (saisies + récurrences), comme la vue Objectifs
 function yearCategoryTotals(year) {
   const map = {};
-  const prefix = String(year) + '-';
-  for (const e of state.expenses) {
-    if (e.type !== 'depense' || !e.date.startsWith(prefix)) continue;
-    map[e.category] = (map[e.category] || 0) + e.amount;
+  for (let m = 0; m < 12; m++) {
+    for (const e of getMonthData(year, m)) {
+      if (e.type !== 'depense') continue;
+      map[e.category] = (map[e.category] || 0) + e.amount;
+    }
+    for (const cat of CATEGORIES) {
+      if (cat.id === INCOME_CATEGORY) continue;
+      const r = recurExpected(cat.id, year, m);
+      if (r > 0) map[cat.id] = (map[cat.id] || 0) + r;
+    }
   }
   return map;
 }

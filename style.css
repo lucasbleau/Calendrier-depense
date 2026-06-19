@@ -1908,8 +1908,11 @@ body {
 .bar-dep-sw { background: var(--depense); }
 .bar-rev-sw { background: var(--revenu); }
 
-.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
-.stats-row .chart-card { margin-bottom: 0; }
+.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: stretch; }
+.stats-row .chart-card { margin-bottom: 0; display: flex; flex-direction: column; }
+/* Centre verticalement le contenu (donut/courbe) sur la hauteur commune */
+.stats-row .chart-card .chart-svg,
+.stats-row .chart-card .donut-layout { margin-top: auto; margin-bottom: auto; }
 
 /* SVG charts */
 .chart-svg { width: 100%; height: auto; display: block; }

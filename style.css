@@ -21,19 +21,30 @@
   --text-2:        #7A6A52;
   --text-3:        #A8977E;
 
+  /* Texte secondaire (alias historique) */
+  --text-muted:    #A8977E;
+
   /* Accent ocre */
   --accent:        #8B6914;
   --accent-hover:  #70550F;
   --accent-faint:  #F5EDDA;
+  --accent-rgb:    139, 105, 20;
 
   /* Sémantique */
   --depense:       #B85C38;
   --depense-faint: #F7EDEA;
   --revenu:        #4A7C59;
   --revenu-faint:  #EAF2EC;
+  --warn:          #C17F3C;
+  --warn-faint:    #F5E6D0;
 
   /* Intensité cellule (RGB de --depense) */
   --intensity-rgb: 184, 92, 56;
+
+  /* Polices */
+  --font-display:  'Fraunces', Georgia, serif;
+  --font-body:     'Inter', sans-serif;
+  --font-mono:     'JetBrains Mono', monospace;
 
   /* Mise en page */
   --header-h: 56px;
@@ -70,7 +81,7 @@ body {
   color: var(--surface);
   border: none;
   border-radius: var(--radius-sm);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -86,7 +97,7 @@ body {
   color: var(--text-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -125,7 +136,7 @@ body {
 }
 
 .app-logo {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 600;
   color: var(--text);
@@ -147,7 +158,7 @@ body {
   border: none;
   background: transparent;
   border-radius: 6px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   color: var(--text-3);
@@ -199,7 +210,7 @@ body {
 .cal-nav-btn:hover { background: var(--surface-2); color: var(--text); }
 
 #month-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 600;
   color: var(--text);
@@ -214,7 +225,7 @@ body {
   color: var(--text);
   padding: 0.3rem 0.5rem;
   border-radius: var(--radius-sm);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   cursor: pointer;
   outline: none;
@@ -312,11 +323,11 @@ body {
 .cal-day.selected {
   border-color: var(--accent);
   background: var(--accent-faint);
-  box-shadow: 0 0 0 3px rgba(139, 105, 20, 0.15);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
 }
 
 .day-num {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
@@ -325,7 +336,7 @@ body {
 }
 
 .day-amount {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
   line-height: 1.25;
@@ -367,7 +378,7 @@ body {
 }
 
 .panel-date {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text);
@@ -385,13 +396,13 @@ body {
 }
 
 .summary-depense {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--depense);
   font-weight: 500;
 }
 .summary-revenu {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--revenu);
   font-weight: 500;
@@ -455,7 +466,7 @@ body {
 }
 
 .op-amount {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -489,7 +500,7 @@ body {
   background: transparent;
   color: var(--text-2);
   border-radius: var(--radius);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
@@ -536,7 +547,7 @@ body {
 }
 
 .modal-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 600;
   color: var(--text);
@@ -579,7 +590,7 @@ body {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   font-size: 14px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -588,7 +599,7 @@ body {
 .field input:focus,
 .field select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(139, 105, 20, 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
 }
 
 .field-row {
@@ -673,7 +684,7 @@ body {
 .import-list li:last-child { border-bottom: none; }
 
 .import-date {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-3);
 }
 
@@ -685,7 +696,7 @@ body {
 }
 
 .import-amount {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -699,165 +710,11 @@ body {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Vue Statistiques
+   Couleurs sémantiques (montants)
    ───────────────────────────────────────────────────────────────────────────── */
 
-#view-stats {
-  padding: 1.25rem 1.5rem 2rem;
-  overflow-y: auto;
-  height: calc(100vh - var(--header-h));
-}
-
-.stats-section {
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 1.1rem 1.25rem;
-  margin-bottom: 1rem;
-}
-
-.stats-section-title {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 0.9rem;
-}
-
-.stats-kpi-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
-}
-
-.kpi-card {
-  background: var(--surface-2);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius);
-  padding: 0.9rem 1rem;
-}
-
-.kpi-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-3);
-  margin-bottom: 0.35rem;
-}
-
-.kpi-value {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 1.4rem;
-  font-weight: 500;
-  color: var(--text);
-  line-height: 1.2;
-}
-.kpi-value.positive,
-.kpi-value.revenu-color { color: var(--revenu); }
-.kpi-value.negative,
-.kpi-value.depense-color { color: var(--depense); }
-
-.kpi-diff {
-  font-size: 11px;
-  margin-top: 0.2rem;
-  font-family: 'Inter', sans-serif;
-}
-.kpi-diff.positive { color: var(--revenu); }
-.kpi-diff.negative { color: var(--depense); }
-
-.charts-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-.chart-wrap {
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 1.1rem 1.25rem;
-}
-
-.chart-title {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 1rem;
-}
-
-.donut-row {
-  display: flex;
-  gap: 1.25rem;
-  align-items: flex-start;
-}
-
-.donut-wrap {
-  flex-shrink: 0;
-  width: 150px;
-  height: 150px;
-}
-
-.cat-list {
-  flex: 1;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  min-width: 0;
-}
-
-.cat-item {
-  display: grid;
-  grid-template-columns: 8px 1fr auto;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.cat-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.cat-name {
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cat-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-}
-
-.cat-amount {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-.cat-pct {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-
-.cat-empty {
-  font-size: 13px;
-  color: var(--text-3);
-  font-style: italic;
-  text-align: center;
-  padding: 1.5rem 0 0.5rem;
-}
+.revenu-color  { color: var(--revenu); }
+.depense-color { color: var(--depense); }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Loading overlay
@@ -916,13 +773,6 @@ body {
    Responsive
    ───────────────────────────────────────────────────────────────────────────── */
 
-@media (max-width: 900px) {
-  .stats-kpi-row { grid-template-columns: 1fr 1fr; }
-  .charts-row { grid-template-columns: 1fr; }
-  .donut-row { flex-direction: column; }
-  .donut-wrap { width: 100%; height: 200px; }
-}
-
 @media (max-width: 700px) {
   .app-header { padding: 0 1rem; gap: 0.5rem; }
   .calendar-nav { padding: 0.6rem 0.75rem; flex-wrap: wrap; gap: 0.4rem; }
@@ -940,9 +790,6 @@ body {
     border-left: none;
     border-top: 1px solid var(--border);
   }
-
-  .stats-kpi-row { grid-template-columns: 1fr; }
-  .kpi-value { font-size: 1.2rem; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1079,7 +926,7 @@ body {
 }
 
 .recurring-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 600;
   color: var(--text);
@@ -1126,7 +973,7 @@ body {
 }
 
 .recur-kpi-value {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 500;
 }
@@ -1156,7 +1003,7 @@ body {
 
 .recurring-group-total {
   margin-left: auto;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--depense);
 }
@@ -1231,7 +1078,7 @@ body {
 }
 
 .recurring-amount {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
@@ -1276,7 +1123,7 @@ body {
   background: var(--surface);
   color: var(--text-2);
   border-radius: var(--radius-sm);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.12s;
@@ -1311,7 +1158,7 @@ body {
    ───────────────────────────────────────────────────────────────────────────── */
 
 .month-goal-indicator {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
   padding: 0.2rem 0.55rem;
@@ -1320,7 +1167,7 @@ body {
   white-space: nowrap;
 }
 .month-goal-indicator.ok   { color: var(--revenu);  border-color: var(--revenu-faint);  background: var(--revenu-faint); }
-.month-goal-indicator.warn { color: #C17F3C;         border-color: #F5E6D0;              background: #F5E6D0; }
+.month-goal-indicator.warn { color: var(--warn);         border-color: var(--warn-faint);              background: var(--warn-faint); }
 .month-goal-indicator.over { color: var(--depense);  border-color: var(--depense-faint); background: var(--depense-faint); }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1331,23 +1178,6 @@ body {
   padding: 1.5rem 1.25rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-}
-
-.goals-header { margin-bottom: 1.5rem; }
-
-.goals-title {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 0.35rem;
-}
-
-.goals-subtitle {
-  font-size: 12px;
-  color: var(--text-3);
-  max-width: 540px;
-  line-height: 1.5;
 }
 
 /* Ligne de réglage des objectifs */
@@ -1387,7 +1217,7 @@ body {
 }
 
 .goal-setting-amount {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
   margin-left: auto;
@@ -1415,7 +1245,7 @@ body {
 }
 .goal-rate-label {
   margin-left: auto;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
@@ -1425,16 +1255,7 @@ body {
   font-size: 10px;
   color: var(--text-3);
   margin-left: 1px;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.gcell-forecast {
-  font-style: italic;
-  color: var(--text-3);
-  font-size: 10px;
-}
-.gcell-forecast-past {
-  opacity: 0.4;
+  font-family: var(--font-mono);
 }
 
 .goal-inline-edit {
@@ -1450,10 +1271,10 @@ body {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   outline: none;
-  box-shadow: 0 0 0 2px rgba(139, 105, 20, 0.1);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
 }
 
 .btn-goal-confirm {
@@ -1480,19 +1301,9 @@ body {
 }
 .btn-goal-cancel:hover { border-color: var(--depense); color: var(--depense); }
 
-.budget-section-divider {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-2);
-  border-top: 1px solid var(--border-light);
-  margin: 2rem 0 1.25rem;
-  padding-top: 1.25rem;
-}
-
 /* Tableau annuel */
 .goals-year-header {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
@@ -1528,7 +1339,7 @@ body {
 .goals-year-table td {
   padding: 0.4rem 0.3rem;
   border-bottom: 1px solid var(--border-light);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-3);
   text-align: right;
@@ -1543,7 +1354,7 @@ body {
   padding-top: 0.55rem;
 }
 .goals-foot .gcell-month {
-  font-family: 'Inter', sans-serif !important;
+  font-family: var(--font-body) !important;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1551,7 +1362,7 @@ body {
 }
 
 .gcell-month {
-  font-family: 'Inter', sans-serif !important;
+  font-family: var(--font-body) !important;
   font-size: 12px !important;
   font-weight: 500;
   color: var(--text-2) !important;
@@ -1566,7 +1377,7 @@ body {
 }
 
 .gcell-amount.ok   { color: var(--revenu) !important; }
-.gcell-amount.warn { color: #C17F3C !important; }
+.gcell-amount.warn { color: var(--warn) !important; }
 .gcell-amount.over { color: var(--depense) !important; font-weight: 600; }
 
 .gcell-total {
@@ -1578,16 +1389,6 @@ body {
   border-left: 2px solid var(--border-light);
   padding-left: 0.7rem !important;
 }
-
-.gcell-total-inner {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-.gcell-total-inner span.ok   { color: var(--revenu); }
-.gcell-total-inner span.warn { color: #C17F3C; }
-.gcell-total-inner span.over { color: var(--depense); font-weight: 600; }
 
 .gcell-total-2l {
   display: flex;
@@ -1615,7 +1416,7 @@ body {
   white-space: nowrap;
 }
 .gcell-total-2l span.ok   { color: var(--revenu); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
-.gcell-total-2l span.warn { color: #C17F3C;        font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.gcell-total-2l span.warn { color: var(--warn);        font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
 .gcell-total-2l span.over { color: var(--depense); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; font-weight: 600; }
 .gcell-total-2l span:not([class]) { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); white-space: nowrap; }
 
@@ -1635,7 +1436,7 @@ body {
   transition: width 0.3s ease;
 }
 .goal-bar.ok   { background: var(--revenu); }
-.goal-bar.warn { background: #C17F3C; }
+.goal-bar.warn { background: var(--warn); }
 .goal-bar.over { background: var(--depense); }
 
 @media (max-width: 700px) {
@@ -1657,7 +1458,7 @@ body {
 .cat-mgmt-header { margin-bottom: 1.25rem; }
 
 .cat-mgmt-title {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 600;
   color: var(--text);
@@ -1696,7 +1497,7 @@ body {
 }
 .cat-add-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(139, 105, 20, 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
 }
 
 .cat-color-label {
@@ -1802,7 +1603,7 @@ body {
 }
 
 .auth-logo {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.35rem;
   font-weight: 600;
   color: var(--text);

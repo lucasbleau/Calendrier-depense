@@ -1701,48 +1701,6 @@ body {
 .legend-swatch.intensity { background: linear-gradient(90deg, rgba(var(--intensity-rgb), 0.06), rgba(var(--intensity-rgb), 0.55)); }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Saisie rapide (panneau jour)
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.quick-add {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.6rem 1.1rem 0.2rem;
-}
-
-.quick-label,
-.quick-amount {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-family: var(--font-body);
-  font-size: 13px;
-  padding: 0.45rem 0.6rem;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.quick-label  { flex: 1; min-width: 0; }
-.quick-amount { width: 64px; font-family: var(--font-mono); text-align: right; }
-.quick-label:focus,
-.quick-amount:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1); }
-
-.quick-add-btn {
-  flex-shrink: 0;
-  width: 34px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--surface);
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.quick-add-btn:hover { background: var(--accent-hover); }
-
-/* ─────────────────────────────────────────────────────────────────────────────
    Modal Recherche
    ───────────────────────────────────────────────────────────────────────────── */
 

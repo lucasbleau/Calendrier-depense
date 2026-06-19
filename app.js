@@ -652,19 +652,12 @@ function renderDayPanel() {
     html += `</div>`;
   }
 
-  html += `
-    <form class="quick-add" id="quick-add-form" autocomplete="off">
-      <input type="text" id="quick-label" class="quick-label" placeholder="Dépense rapide…" autocomplete="off" />
-      <input type="text" id="quick-amount" class="quick-amount" placeholder="€" inputmode="decimal" />
-      <button type="submit" class="quick-add-btn" title="Ajouter une dépense">+</button>
-    </form>
-    <button class="btn-add-op" id="btn-add-operation">Saisie détaillée…</button>`;
+  html += `<button class="btn-add-op" id="btn-add-operation">+ Ajouter une opération</button>`;
 
   panel.innerHTML = html;
 
   $('close-panel').addEventListener('click', closePanel);
   $('btn-add-operation').addEventListener('click', () => openAddModal(dateStr));
-  $('quick-add-form').addEventListener('submit', e => { e.preventDefault(); quickAddExpense(dateStr); });
 
   const recurMap = Object.fromEntries(recurItems.map(r => [r.id, r]));
 
@@ -758,31 +751,6 @@ function closePanel() {
   state.selectedDate = null;
   $('day-panel').classList.add('hidden');
   renderCalendar();
-}
-
-// Saisie rapide depuis le panneau jour : dépense, catégorie devinée depuis le libellé
-async function quickAddExpense(dateStr) {
-  const labelEl  = $('quick-label');
-  const amountEl = $('quick-amount');
-  const label  = labelEl.value.trim();
-  const amount = parseAmount(amountEl.value);
-  if (!label)  { labelEl.focus();  return; }
-  if (!amount) { amountEl.focus(); return; }
-
-  const expense = { id: generateId(), date: dateStr, label, amount, type: 'depense', category: guessCategory(label) };
-  state.expenses.push(expense);
-  renderCalendar();
-  renderDayPanel();
-  $('quick-label')?.focus(); // prêt pour une saisie suivante
-
-  try {
-    await DB.add(expense);
-  } catch {
-    state.expenses = state.expenses.filter(e => e.id !== expense.id);
-    renderCalendar();
-    renderDayPanel();
-    showToast('Erreur lors de l\'enregistrement');
-  }
 }
 
 

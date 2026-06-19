@@ -591,14 +591,20 @@ function renderDayPanel() {
   const { depenses, revenus } = sumByType(items);
   const recurItems = getRecurringForDay(year, month - 1, day);
 
+  // Totaux du jour = opérations saisies + récurrences (même règle que le calendrier)
+  const recurDep = recurItems.filter(r => r.type === 'depense').reduce((s, r) => s + r.amount, 0);
+  const recurRev = recurItems.filter(r => r.type === 'revenu').reduce((s, r) => s + r.amount, 0);
+  const totalDep = depenses + recurDep;
+  const totalRev = revenus + recurRev;
+
   let html = `
     <div class="panel-header">
       <h2 class="panel-date">${label}</h2>
       <button class="btn-icon" id="close-panel" aria-label="Fermer">&#10005;</button>
     </div>
     <div class="panel-summary">
-      ${depenses > 0 ? `<span class="summary-depense">Dépenses : ${fmtEUR(depenses)}</span>` : ''}
-      ${revenus  > 0 ? `<span class="summary-revenu">Revenus : ${fmtEUR(revenus)}</span>`    : ''}
+      ${totalDep > 0 ? `<span class="summary-depense">Dépenses : ${fmtEUR(totalDep)}</span>` : ''}
+      ${totalRev > 0 ? `<span class="summary-revenu">Revenus : ${fmtEUR(totalRev)}</span>`    : ''}
       ${items.length === 0 && recurItems.length === 0 ? '<span class="summary-empty">Aucune opération enregistrée.</span>' : ''}
     </div>
     <ul class="operations-list">

@@ -171,7 +171,7 @@ body {
   box-shadow: 0 1px 3px rgba(38, 31, 18, 0.12);
 }
 
-.header-actions { margin-left: auto; }
+.header-actions { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Vue Calendrier — layout
@@ -1629,4 +1629,341 @@ body {
   font-size: 12px;
   color: var(--depense);
   margin-top: -0.4rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Bouton Aujourd'hui + Légende
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.btn-today,
+.btn-legend {
+  padding: 0.32rem 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-today:hover,
+.btn-legend:hover { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
+
+.legend-wrap { position: relative; }
+
+.calendar-legend {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 270px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.legend-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+  margin-top: 0.25rem;
+}
+.legend-section-title:first-child { margin-top: 0; }
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.legend-swatch.ok        { background: var(--revenu); }
+.legend-swatch.warn      { background: var(--warn); }
+.legend-swatch.over      { background: var(--depense); }
+.legend-swatch.intensity { background: linear-gradient(90deg, rgba(var(--intensity-rgb), 0.06), rgba(var(--intensity-rgb), 0.55)); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Saisie rapide (panneau jour)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.quick-add {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 1.1rem 0.2rem;
+}
+
+.quick-label,
+.quick-amount {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 0.45rem 0.6rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.quick-label  { flex: 1; min-width: 0; }
+.quick-amount { width: 64px; font-family: var(--font-mono); text-align: right; }
+.quick-label:focus,
+.quick-amount:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1); }
+
+.quick-add-btn {
+  flex-shrink: 0;
+  width: 34px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--surface);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.quick-add-btn:hover { background: var(--accent-hover); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Modal Recherche
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.search-filters {
+  display: grid;
+  grid-template-columns: 2fr 1.3fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.search-filters #search-min,
+.search-filters #search-max { grid-column: span 1; }
+.search-filters input,
+.search-filters select {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+}
+.search-filters input:focus,
+.search-filters select:focus { border-color: var(--accent); }
+.search-amount { font-family: var(--font-mono); }
+
+#search-results { max-height: 50vh; overflow-y: auto; }
+
+.search-count {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 0.5rem;
+  font-family: var(--font-mono);
+}
+
+.search-list { list-style: none; display: flex; flex-direction: column; }
+
+.search-item {
+  display: grid;
+  grid-template-columns: 8px 78px 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.3rem;
+  border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s;
+}
+.search-item:hover { background: var(--surface-2); }
+
+.search-date { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.search-label { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-cat { font-size: 10px; color: var(--text-3); white-space: nowrap; }
+
+.search-empty,
+.search-more {
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Vue Statistiques
+   ───────────────────────────────────────────────────────────────────────────── */
+
+#view-stats {
+  padding: 1.5rem 1.25rem 2rem;
+  overflow-y: auto;
+  height: calc(100vh - var(--header-h));
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.stats-title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.stats-yearnav { display: flex; align-items: center; gap: 0.5rem; }
+.stats-year {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text);
+  min-width: 54px;
+  text-align: center;
+}
+
+.stats-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.stat-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.stat-kpi-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+}
+.stat-kpi-value {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.stats-empty {
+  text-align: center;
+  color: var(--text-3);
+  font-style: italic;
+  padding: 3rem 1rem;
+}
+
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+.chart-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.chart-card-title {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.75rem;
+}
+.chart-card-head .chart-card-title { margin-bottom: 0; }
+
+.chart-legend-inline { display: flex; gap: 0.9rem; }
+.cl-item { display: flex; align-items: center; gap: 0.35rem; font-size: 11px; color: var(--text-2); }
+.cl-swatch { width: 11px; height: 11px; border-radius: 3px; }
+.bar-dep-sw { background: var(--depense); }
+.bar-rev-sw { background: var(--revenu); }
+
+.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.stats-row .chart-card { margin-bottom: 0; }
+
+/* SVG charts */
+.chart-svg { width: 100%; height: auto; display: block; }
+.bar-dep { fill: var(--depense); }
+.bar-rev { fill: var(--revenu); }
+.chart-base { stroke: var(--border); stroke-width: 1; }
+.chart-axis { fill: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+.chart-zero { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-soldeline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.dot-pos { fill: var(--revenu); }
+.dot-neg { fill: var(--depense); }
+
+/* Donut + classement */
+.donut-layout { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
+.donut-svg { width: 170px; height: 170px; flex-shrink: 0; }
+.donut-center-val { fill: var(--text); font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
+.donut-center-lbl { fill: var(--text-3); font-family: var(--font-body); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.cat-rank { flex: 1; min-width: 180px; list-style: none; display: flex; flex-direction: column; gap: 0.45rem; }
+.cat-rank-item {
+  display: grid;
+  grid-template-columns: 8px 1fr 60px auto auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cat-rank-name { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-rank-bar { height: 6px; background: var(--border-light); border-radius: 99px; overflow: hidden; }
+.cat-rank-bar span { display: block; height: 100%; border-radius: 99px; }
+.cat-rank-val { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); white-space: nowrap; text-align: right; }
+.cat-rank-pct { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); white-space: nowrap; min-width: 30px; text-align: right; }
+.cat-rank-empty { color: var(--text-3); font-style: italic; font-size: 12px; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Responsive — nouveaux composants
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  .app-header { flex-wrap: wrap; height: auto; padding: 0.5rem 0.75rem; gap: 0.5rem; }
+  .view-tabs { order: 3; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .view-tabs button { flex: 0 0 auto; }
+  .header-actions { margin-left: auto; }
+  .app-logo { font-size: 1.05rem; }
+}
+
+@media (max-width: 700px) {
+  .stats-row { grid-template-columns: 1fr; }
+  .stats-kpis { grid-template-columns: 1fr 1fr; }
+  #view-stats { padding: 1rem 0.85rem 2rem; }
+  .search-filters { grid-template-columns: 1fr 1fr; }
+  .search-filters #search-text { grid-column: 1 / -1; }
+  .donut-layout { justify-content: center; }
+  .calendar-legend { right: auto; left: 0; }
+  /* Cellules calendrier plus tappables */
+  .cal-day { min-height: 64px; padding: 0.35rem 0.4rem; }
+  .day-amount { font-size: 11px; }
+  .btn-secondary, .btn-primary, .btn-today, .btn-legend { min-height: 36px; }
 }

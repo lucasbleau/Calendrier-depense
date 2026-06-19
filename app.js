@@ -306,12 +306,6 @@ function todayStr() {
   return dateKey(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-// Ferme un modal quand on clique sur son fond (backdrop), pas sur son contenu
-function bindBackdrop(modalId, closeFn) {
-  const modal = $(modalId);
-  modal.addEventListener('click', e => { if (e.target === modal) closeFn(); });
-}
-
 function fmtDays(days) {
   const sorted = [...days].sort((a, b) => a - b);
   return sorted.map(d => d + (d === 1 ? 'er' : '')).join(', ') + ' du mois';
@@ -661,12 +655,19 @@ function renderDayPanel() {
     html += `</div>`;
   }
 
-  html += `<button class="btn-add-op" id="btn-add-operation">+ Ajouter une opération</button>`;
+  html += `
+    <form class="quick-add" id="quick-add-form" autocomplete="off">
+      <input type="text" id="quick-label" class="quick-label" placeholder="Dépense rapide…" autocomplete="off" />
+      <input type="text" id="quick-amount" class="quick-amount" placeholder="€" inputmode="decimal" />
+      <button type="submit" class="quick-add-btn" title="Ajouter une dépense">+</button>
+    </form>
+    <button class="btn-add-op" id="btn-add-operation">Saisie détaillée…</button>`;
 
   panel.innerHTML = html;
 
   $('close-panel').addEventListener('click', closePanel);
   $('btn-add-operation').addEventListener('click', () => openAddModal(dateStr));
+  $('quick-add-form').addEventListener('submit', e => { e.preventDefault(); quickAddExpense(dateStr); });
 
   const recurMap = Object.fromEntries(recurItems.map(r => [r.id, r]));
 
@@ -760,6 +761,31 @@ function closePanel() {
   state.selectedDate = null;
   $('day-panel').classList.add('hidden');
   renderCalendar();
+}
+
+// Saisie rapide depuis le panneau jour : dépense, catégorie devinée depuis le libellé
+async function quickAddExpense(dateStr) {
+  const labelEl  = $('quick-label');
+  const amountEl = $('quick-amount');
+  const label  = labelEl.value.trim();
+  const amount = parseAmount(amountEl.value);
+  if (!label)  { labelEl.focus();  return; }
+  if (!amount) { amountEl.focus(); return; }
+
+  const expense = { id: generateId(), date: dateStr, label, amount, type: 'depense', category: guessCategory(label) };
+  state.expenses.push(expense);
+  renderCalendar();
+  renderDayPanel();
+  $('quick-label')?.focus(); // prêt pour une saisie suivante
+
+  try {
+    await DB.add(expense);
+  } catch {
+    state.expenses = state.expenses.filter(e => e.id !== expense.id);
+    renderCalendar();
+    renderDayPanel();
+    showToast('Erreur lors de l\'enregistrement');
+  }
 }
 
 
@@ -1535,17 +1561,281 @@ async function deleteCategory(id) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Recherche d'opérations
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openSearchModal() {
+  populateSearchCategory();
+  ['search-text', 'search-min', 'search-max'].forEach(id => { $(id).value = ''; });
+  $('search-type').value = '';
+  $('search-category').value = '';
+  $('modal-search').classList.remove('hidden');
+  renderSearchResults();
+  $('search-text').focus();
+}
+
+function closeSearchModal() {
+  $('modal-search').classList.add('hidden');
+}
+
+function populateSearchCategory() {
+  const sel = $('search-category');
+  sel.innerHTML = '<option value="">Toutes catégories</option>';
+  CATEGORIES.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = c.label;
+    sel.appendChild(o);
+  });
+}
+
+function renderSearchResults() {
+  const text = $('search-text').value.trim().toLowerCase();
+  const cat  = $('search-category').value;
+  const type = $('search-type').value;
+  const min  = $('search-min').value ? parseAmount($('search-min').value) : null;
+  const max  = $('search-max').value ? parseAmount($('search-max').value) : null;
+
+  const res = state.expenses.filter(e => {
+    if (text && !e.label.toLowerCase().includes(text)) return false;
+    if (cat  && e.category !== cat)  return false;
+    if (type && e.type !== type)     return false;
+    if (min !== null && e.amount < min) return false;
+    if (max !== null && e.amount > max) return false;
+    return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  const box = $('search-results');
+  if (!res.length) {
+    box.innerHTML = '<p class="search-empty">Aucune opération ne correspond.</p>';
+    return;
+  }
+
+  const solde = res.reduce((s, e) => s + (e.type === 'depense' ? -e.amount : e.amount), 0);
+  const shown = res.slice(0, 100);
+  box.innerHTML =
+    `<div class="search-count">${res.length} résultat(s) · solde ${fmtEUR(solde)}</div>` +
+    `<ul class="search-list">` + shown.map(e => {
+      const c = getCat(e.category);
+      return `
+        <li class="search-item" data-date="${e.date}">
+          <span class="op-dot" style="background:${c.color}"></span>
+          <span class="search-date">${e.date}</span>
+          <span class="search-label" title="${e.label}">${e.label}</span>
+          <span class="search-cat">${c.label}</span>
+          <span class="op-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
+        </li>`;
+    }).join('') + `</ul>` +
+    (res.length > 100 ? `<p class="search-more">… ${res.length - 100} de plus — affinez la recherche</p>` : '');
+
+  box.querySelectorAll('.search-item').forEach(li => {
+    li.addEventListener('click', () => {
+      const d = li.dataset.date;
+      const [y, m] = d.split('-').map(Number);
+      state.currentYear = y;
+      state.currentMonth = m - 1;
+      closeSearchModal();
+      setView('calendar');
+      selectDay(d);
+    });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vue Statistiques (graphes SVG sur-mesure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Totaux mensuels (dépenses/revenus réels) pour une année
+function yearMonthlyTotals(year) {
+  const dep = Array(12).fill(0), rev = Array(12).fill(0);
+  const prefix = String(year) + '-';
+  for (const e of state.expenses) {
+    if (!e.date.startsWith(prefix)) continue;
+    const m = Number(e.date.slice(5, 7)) - 1;
+    if (m < 0 || m > 11) continue;
+    if (e.type === 'depense') dep[m] += e.amount; else rev[m] += e.amount;
+  }
+  return { dep, rev };
+}
+
+// Totaux de dépenses par catégorie pour une année
+function yearCategoryTotals(year) {
+  const map = {};
+  const prefix = String(year) + '-';
+  for (const e of state.expenses) {
+    if (e.type !== 'depense' || !e.date.startsWith(prefix)) continue;
+    map[e.category] = (map[e.category] || 0) + e.amount;
+  }
+  return map;
+}
+
+// Barres groupées dépenses/revenus sur 12 mois
+function svgGroupedBars(dep, rev) {
+  const W = 720, H = 240, padX = 6, padT = 12, padB = 26;
+  const innerW = W - padX * 2, innerH = H - padT - padB;
+  const max = Math.max(1, ...dep, ...rev);
+  const groupW = innerW / 12;
+  const barW = Math.max(4, groupW / 2 - 3);
+  const baseY = padT + innerH;
+  let s = `<line class="chart-base" x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}"/>`;
+  for (let m = 0; m < 12; m++) {
+    const gx = padX + m * groupW;
+    const dh = (dep[m] / max) * innerH;
+    const rh = (rev[m] / max) * innerH;
+    const dx = gx + groupW / 2 - barW - 1;
+    const rx = gx + groupW / 2 + 1;
+    if (dep[m] > 0) s += `<rect class="bar-dep" x="${dx.toFixed(1)}" y="${(baseY - dh).toFixed(1)}" width="${barW.toFixed(1)}" height="${dh.toFixed(1)}" rx="2"><title>${MONTHS_SHORT[m]} — dépenses ${fmtEUR(dep[m])}</title></rect>`;
+    if (rev[m] > 0) s += `<rect class="bar-rev" x="${rx.toFixed(1)}" y="${(baseY - rh).toFixed(1)}" width="${barW.toFixed(1)}" height="${rh.toFixed(1)}" rx="2"><title>${MONTHS_SHORT[m]} — revenus ${fmtEUR(rev[m])}</title></rect>`;
+    s += `<text class="chart-axis" x="${(gx + groupW / 2).toFixed(1)}" y="${H - 9}" text-anchor="middle">${MONTHS_SHORT[m]}</text>`;
+  }
+  return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Dépenses et revenus par mois">${s}</svg>`;
+}
+
+// Courbe du solde net mensuel (peut être négatif)
+function svgLineChart(values) {
+  const W = 720, H = 220, padX = 8, padT = 16, padB = 26;
+  const innerW = W - padX * 2, innerH = H - padT - padB;
+  const max = Math.max(1, ...values.map(v => Math.abs(v)));
+  const zeroY = padT + innerH / 2;
+  const scale = (innerH / 2) / max;
+  const pts = values.map((v, m) => [padX + (m / 11) * innerW, zeroY - v * scale]);
+  const poly = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const dots = pts.map((p, m) =>
+    `<circle class="${values[m] >= 0 ? 'dot-pos' : 'dot-neg'}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.2"><title>${MONTHS_SHORT[m]} — solde ${fmtEUR(values[m])}</title></circle>`
+  ).join('');
+  const labels = MONTHS_SHORT.map((mm, m) =>
+    `<text class="chart-axis" x="${(padX + (m / 11) * innerW).toFixed(1)}" y="${H - 9}" text-anchor="middle">${mm}</text>`
+  ).join('');
+  return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution du solde net">
+    <line class="chart-zero" x1="${padX}" y1="${zeroY}" x2="${W - padX}" y2="${zeroY}"/>
+    <polyline class="chart-soldeline" points="${poly}"/>
+    ${dots}${labels}
+  </svg>`;
+}
+
+// Donut de répartition (slices: {label,color,value})
+function svgDonut(slices, total) {
+  const size = 188, r = 70, cx = size / 2, cy = size / 2, sw = 26;
+  const C = 2 * Math.PI * r;
+  let segs = '', off = 0;
+  if (total > 0) {
+    for (const sl of slices) {
+      const len = (sl.value / total) * C;
+      segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${sl.color}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${sl.label} — ${fmtEUR(sl.value)} (${Math.round(sl.value / total * 100)}%)</title></circle>`;
+      off += len;
+    }
+  } else {
+    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border-light)" stroke-width="${sw}"/>`;
+  }
+  return `<svg class="donut-svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="Répartition des dépenses par catégorie">
+    ${segs}
+    <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="donut-center-val">${fmtCompact(total)}</text>
+    <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">dépenses</text>
+  </svg>`;
+}
+
+function renderStats() {
+  const container = $('stats-body');
+  const year = state.currentYear;
+  const { dep, rev } = yearMonthlyTotals(year);
+  const totalDep = dep.reduce((a, b) => a + b, 0);
+  const totalRev = rev.reduce((a, b) => a + b, 0);
+  const solde = totalRev - totalDep;
+  const activeMonths = dep.filter((d, i) => d > 0 || rev[i] > 0).length || 1;
+  const avgDep = totalDep / activeMonths;
+  const soldeSeries = dep.map((d, m) => rev[m] - d);
+
+  const catMap = yearCategoryTotals(year);
+  const slices = Object.entries(catMap)
+    .map(([id, value]) => ({ id, value, label: getCat(id).label, color: getCat(id).color }))
+    .sort((a, b) => b.value - a.value);
+  const maxCat = slices.length ? slices[0].value : 0;
+
+  const kpi = (label, value, cls) =>
+    `<div class="stat-kpi"><span class="stat-kpi-label">${label}</span><span class="stat-kpi-value ${cls || ''}">${value}</span></div>`;
+
+  let html = `
+    <div class="stats-head">
+      <h2 class="stats-title">Statistiques</h2>
+      <div class="stats-yearnav">
+        <button class="cal-nav-btn" id="stats-prev-year" aria-label="Année précédente">&#8592;</button>
+        <span class="stats-year">${year}</span>
+        <button class="cal-nav-btn" id="stats-next-year" aria-label="Année suivante">&#8594;</button>
+      </div>
+    </div>
+
+    <div class="stats-kpis">
+      ${kpi('Dépenses', fmtEUR(totalDep), 'depense-color')}
+      ${kpi('Revenus', fmtEUR(totalRev), 'revenu-color')}
+      ${kpi('Solde', (solde >= 0 ? '+' : '') + fmtEUR(solde), solde >= 0 ? 'revenu-color' : 'depense-color')}
+      ${kpi('Dépense moy. / mois', fmtEUR(avgDep))}
+    </div>`;
+
+  if (totalDep === 0 && totalRev === 0) {
+    html += `<p class="stats-empty">Aucune opération enregistrée pour ${year}.</p>`;
+    container.innerHTML = html;
+    wireStatsNav();
+    return;
+  }
+
+  html += `
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h3 class="chart-card-title">Dépenses &amp; revenus par mois</h3>
+        <div class="chart-legend-inline">
+          <span class="cl-item"><span class="cl-swatch bar-dep-sw"></span>Dépenses</span>
+          <span class="cl-item"><span class="cl-swatch bar-rev-sw"></span>Revenus</span>
+        </div>
+      </div>
+      ${svgGroupedBars(dep, rev)}
+    </div>
+
+    <div class="stats-row">
+      <div class="chart-card">
+        <h3 class="chart-card-title">Répartition par catégorie</h3>
+        <div class="donut-layout">
+          ${svgDonut(slices, totalDep)}
+          <ul class="cat-rank">
+            ${slices.length ? slices.slice(0, 8).map(s => `
+              <li class="cat-rank-item">
+                <span class="op-dot" style="background:${s.color}"></span>
+                <span class="cat-rank-name" title="${s.label}">${s.label}</span>
+                <span class="cat-rank-bar"><span style="width:${maxCat ? Math.round(s.value / maxCat * 100) : 0}%;background:${s.color}"></span></span>
+                <span class="cat-rank-val">${fmtEUR(s.value)}</span>
+                <span class="cat-rank-pct">${totalDep ? Math.round(s.value / totalDep * 100) : 0}%</span>
+              </li>`).join('') : '<li class="cat-rank-empty">Aucune dépense</li>'}
+          </ul>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h3 class="chart-card-title">Solde net mensuel</h3>
+        ${svgLineChart(soldeSeries)}
+      </div>
+    </div>`;
+
+  container.innerHTML = html;
+  wireStatsNav();
+}
+
+function wireStatsNav() {
+  const prev = $('stats-prev-year'), next = $('stats-next-year');
+  if (prev) prev.addEventListener('click', () => { state.currentYear--; renderStats(); });
+  if (next) next.addEventListener('click', () => { state.currentYear++; renderStats(); });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Vues
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setView(view) {
   state.view = view;
-  ['calendar', 'recurring', 'goals', 'categories'].forEach(v => {
+  ['calendar', 'stats', 'recurring', 'goals', 'categories'].forEach(v => {
     $(`view-${v}`).classList.toggle('hidden', view !== v);
     $(`btn-view-${v}`).classList.toggle('active', view === v);
     $(`btn-view-${v}`).setAttribute('aria-selected', view === v);
   });
 
+  if (view === 'stats') renderStats();
   if (view === 'recurring') renderRecurring();
   if (view === 'goals') renderGoals();
   if (view === 'categories') renderCategories();
@@ -1565,6 +1855,14 @@ function nextMonth() {
   if (state.currentMonth === 11) { state.currentMonth = 0; state.currentYear++; }
   else state.currentMonth++;
   closePanel();
+}
+
+function goToday() {
+  const d = new Date();
+  state.currentYear  = d.getFullYear();
+  state.currentMonth = d.getMonth();
+  if (state.view !== 'calendar') setView('calendar');
+  closePanel(); // remet selectedDate à null et rerend le calendrier
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1608,17 +1906,38 @@ async function init() {
 
   // Raccourcis clavier
   document.addEventListener('keydown', e => {
+    // Escape ferme aussi depuis un champ (modale de recherche notamment)
+    if (e.key === 'Escape') {
+      closePanel(); closeAddModal(); closeImportModal(); closeRecurringModal(); closeSearchModal();
+      return;
+    }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === 'ArrowLeft')  prevMonth();
     if (e.key === 'ArrowRight') nextMonth();
-    if (e.key === 'Escape') { closePanel(); closeAddModal(); closeImportModal(); closeRecurringModal(); }
+    if (e.key === 't' || e.key === 'T') goToday();
+    if (e.key === '/') { e.preventDefault(); openSearchModal(); }
   });
 
   // Onglets
   $('btn-view-calendar').addEventListener('click',    () => setView('calendar'));
+  $('btn-view-stats').addEventListener('click',       () => setView('stats'));
   $('btn-view-recurring').addEventListener('click',   () => setView('recurring'));
   $('btn-view-goals').addEventListener('click',       () => setView('goals'));
   $('btn-view-categories').addEventListener('click',  () => setView('categories'));
+
+  // Aujourd'hui + légende
+  $('btn-today').addEventListener('click', goToday);
+  $('btn-legend').addEventListener('click', () => {
+    const leg = $('calendar-legend');
+    const hidden = leg.classList.toggle('hidden');
+    $('btn-legend').setAttribute('aria-expanded', String(!hidden));
+  });
+
+  // Recherche
+  $('btn-search').addEventListener('click', openSearchModal);
+  $('modal-search-close').addEventListener('click', closeSearchModal);
+  ['search-text', 'search-min', 'search-max'].forEach(id => $(id).addEventListener('input', renderSearchResults));
+  ['search-category', 'search-type'].forEach(id => $(id).addEventListener('change', renderSearchResults));
 
   // Import
   $('btn-import').addEventListener('click', openImportModal);
@@ -1626,13 +1945,11 @@ async function init() {
   $('btn-cancel-import').addEventListener('click', closeImportModal);
   $('btn-confirm-import').addEventListener('click', confirmImport);
   $('import-file').addEventListener('change', handleFileSelect);
-  bindBackdrop('modal-import', closeImportModal);
 
   // Modal ajout
   $('modal-add-close').addEventListener('click', closeAddModal);
   $('btn-cancel-add').addEventListener('click', closeAddModal);
   $('btn-save-add').addEventListener('click', saveNewExpense);
-  bindBackdrop('modal-add', closeAddModal);
   $('add-amount').addEventListener('keydown', e => {
     if (e.key === 'Enter') saveNewExpense();
   });
@@ -1651,7 +1968,6 @@ async function init() {
   $('modal-recurring-close').addEventListener('click', closeRecurringModal);
   $('btn-cancel-recurring').addEventListener('click', closeRecurringModal);
   $('btn-save-recurring').addEventListener('click', saveRecurring);
-  bindBackdrop('modal-recurring', closeRecurringModal);
   $('recur-amount').addEventListener('keydown', e => {
     if (e.key === 'Enter') saveRecurring();
   });

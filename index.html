@@ -18,12 +18,14 @@
 
     <div class="view-tabs" role="tablist">
       <button id="btn-view-calendar" class="active" role="tab" aria-selected="true">Calendrier</button>
+      <button id="btn-view-stats" role="tab" aria-selected="false">Statistiques</button>
       <button id="btn-view-recurring" role="tab" aria-selected="false">Récurrences</button>
       <button id="btn-view-goals" role="tab" aria-selected="false">Objectifs</button>
       <button id="btn-view-categories" role="tab" aria-selected="false">Catégories</button>
     </div>
 
     <div class="header-actions">
+      <button class="btn-secondary" id="btn-search" title="Rechercher une opération (/)">Rechercher</button>
       <button class="btn-primary" id="btn-import">Importer CSV</button>
     </div>
   </header>
@@ -36,9 +38,21 @@
       <span id="month-title" aria-live="polite"></span>
       <span id="month-goal-indicator" class="hidden" title="Objectifs : dépensé / limite mensuelle"></span>
       <button class="cal-nav-btn" id="next-month" aria-label="Mois suivant">&#8594;</button>
+      <button class="btn-today" id="btn-today" title="Revenir au mois courant (T)">Aujourd'hui</button>
       <div class="cal-selectors">
         <select id="select-month" aria-label="Choisir le mois"></select>
         <select id="select-year" aria-label="Choisir l'année"></select>
+      </div>
+      <div class="legend-wrap">
+        <button class="btn-legend" id="btn-legend" type="button" aria-expanded="false" aria-controls="calendar-legend" title="Légende des couleurs">Légende</button>
+        <div id="calendar-legend" class="calendar-legend hidden" role="region" aria-label="Légende des couleurs">
+          <div class="legend-section-title">Objectifs (réel / plafond)</div>
+          <div class="legend-row"><span class="legend-swatch ok"></span> &lt; 80 % du plafond</div>
+          <div class="legend-row"><span class="legend-swatch warn"></span> 80 – 100 %</div>
+          <div class="legend-row"><span class="legend-swatch over"></span> &gt; 100 % (dépassé)</div>
+          <div class="legend-section-title">Cellule du calendrier</div>
+          <div class="legend-row"><span class="legend-swatch intensity"></span> Plus la case est foncée, plus la dépense du jour est élevée</div>
+        </div>
       </div>
     </div>
 
@@ -49,6 +63,11 @@
       <aside id="day-panel" class="hidden" aria-label="Détail du jour"></aside>
     </div>
 
+  </div>
+
+  <!-- ─── Vue Statistiques ────────────────────────────────────────────── -->
+  <div id="view-stats" class="hidden">
+    <div id="stats-body"></div>
   </div>
 
 
@@ -179,6 +198,30 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="btn-cancel-recurring">Annuler</button>
         <button class="btn-primary" id="btn-save-recurring">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal : Recherche ───────────────────────────────────────────── -->
+  <div id="modal-search" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-search-title">
+    <div class="modal-box modal-box--wide">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-search-title">Rechercher une opération</h2>
+        <button class="btn-icon" id="modal-search-close" aria-label="Fermer">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="search-filters">
+          <input type="text" id="search-text" placeholder="Libellé…" autocomplete="off" />
+          <select id="search-category" aria-label="Catégorie"></select>
+          <select id="search-type" aria-label="Type">
+            <option value="">Tous types</option>
+            <option value="depense">Dépenses</option>
+            <option value="revenu">Revenus</option>
+          </select>
+          <input type="text" id="search-min" placeholder="Min €" inputmode="decimal" class="search-amount" />
+          <input type="text" id="search-max" placeholder="Max €" inputmode="decimal" class="search-amount" />
+        </div>
+        <div id="search-results"></div>
       </div>
     </div>
   </div>

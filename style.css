@@ -9,37 +9,37 @@
 }
 
 :root {
-  /* Palette terreuse */
-  --bg:            #EDE8DF;
-  --surface:       #FAF7F1;
-  --surface-2:     #F2EDE3;
-  --border:        #CFC5AE;
-  --border-light:  #E4DECE;
+  /* Palette « Ardoise & cuivre » */
+  --bg:            #E8E9EC;
+  --surface:       #F7F8FA;
+  --surface-2:     #EDEEF1;
+  --border:        #C2C6CE;
+  --border-light:  #DDE0E6;
 
   /* Texte */
-  --text:          #261F12;
-  --text-2:        #7A6A52;
-  --text-3:        #A8977E;
+  --text:          #1F2329;
+  --text-2:        #5A616B;
+  --text-3:        #9098A3;
 
   /* Texte secondaire (alias historique) */
-  --text-muted:    #A8977E;
+  --text-muted:    #9098A3;
 
-  /* Accent ocre */
-  --accent:        #8B6914;
-  --accent-hover:  #70550F;
-  --accent-faint:  #F5EDDA;
-  --accent-rgb:    139, 105, 20;
+  /* Accent cuivre */
+  --accent:        #B06A3C;
+  --accent-hover:  #94552E;
+  --accent-faint:  #F4E8DF;
+  --accent-rgb:    176, 106, 60;
 
   /* Sémantique */
-  --depense:       #B85C38;
-  --depense-faint: #F7EDEA;
-  --revenu:        #4A7C59;
-  --revenu-faint:  #EAF2EC;
-  --warn:          #C17F3C;
-  --warn-faint:    #F5E6D0;
+  --depense:       #C0533E;
+  --depense-faint: #F7E9E6;
+  --revenu:        #3E8268;
+  --revenu-faint:  #E5F0EB;
+  --warn:          #C18A36;
+  --warn-faint:    #F4EAD4;
 
   /* Intensité cellule (RGB de --depense) */
-  --intensity-rgb: 184, 92, 56;
+  --intensity-rgb: 192, 83, 62;
 
   /* Polices */
   --font-display:  'Fraunces', Georgia, serif;
@@ -50,8 +50,8 @@
   --header-h: 56px;
   --radius:   9px;
   --radius-sm: 6px;
-  --shadow:   0 2px 12px rgba(38, 31, 18, 0.08);
-  --shadow-lg: 0 16px 48px rgba(38, 31, 18, 0.18);
+  --shadow:   0 2px 12px rgba(31, 35, 41, 0.08);
+  --shadow-lg: 0 16px 48px rgba(31, 35, 41, 0.18);
 }
 
 html { font-size: 14px; }
@@ -168,7 +168,7 @@ body {
 .view-tabs button.active {
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(38, 31, 18, 0.12);
+  box-shadow: 0 1px 3px rgba(31, 35, 41, 0.12);
 }
 
 .header-actions { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
@@ -519,7 +519,7 @@ body {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(38, 31, 18, 0.5);
+  background: rgba(31, 35, 41, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -759,7 +759,7 @@ body {
   font-size: 13px;
   font-weight: 500;
   z-index: 300;
-  box-shadow: 0 4px 16px rgba(38, 31, 18, 0.25);
+  box-shadow: 0 4px 16px rgba(31, 35, 41, 0.25);
   white-space: nowrap;
   animation: toast-in 0.2s ease;
 }

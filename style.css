@@ -1439,10 +1439,117 @@ body {
 .goal-bar.warn { background: var(--warn); }
 .goal-bar.over { background: var(--depense); }
 
+/* ── Mois en avant ── */
+.goal-focus {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.9rem 1rem;
+  margin-bottom: 1.5rem;
+}
+.goal-focus-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.goal-focus-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: capitalize;
+}
+.goal-focus-sub { font-family: var(--font-mono); font-size: 0.85rem; }
+.goal-focus-sub .goal-focus-sep { color: var(--text-3); }
+.goal-focus-sub .ok   { color: var(--revenu); }
+.goal-focus-sub .warn { color: var(--warn); }
+.goal-focus-sub .over { color: var(--depense); font-weight: 600; }
+
+.goal-focus-list { display: flex; flex-direction: column; gap: 0.55rem; }
+.goal-focus-empty { font-size: 0.85rem; color: var(--text-3); padding: 0.4rem 0; }
+
+.gfocus-row {
+  display: grid;
+  grid-template-columns: auto minmax(72px, 1fr) minmax(70px, 2.2fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+}
+.gfocus-row .goal-dot { width: 9px; height: 9px; }
+.gfocus-name {
+  font-size: 0.85rem;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gfocus-bar-wrap {
+  height: 8px;
+  background: var(--border-light);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.gfocus-bar { height: 100%; border-radius: 99px; transition: width 0.3s ease; }
+.gfocus-bar.ok   { background: var(--revenu); }
+.gfocus-bar.warn { background: var(--warn); }
+.gfocus-bar.over { background: var(--depense); }
+.gfocus-val { font-family: var(--font-mono); font-size: 0.8rem; text-align: right; white-space: nowrap; }
+.gfocus-val .ok   { color: var(--revenu); }
+.gfocus-val .warn { color: var(--warn); }
+.gfocus-val .over { color: var(--depense); font-weight: 600; }
+.gfocus-val span:not([class]) { color: var(--text-2); }
+
+/* ── Aperçu année : heatmap ── */
+.goals-year-hint {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.goals-heat { table-layout: auto; min-width: 560px; }
+.goals-heat tbody tr { cursor: pointer; transition: background 0.15s ease; }
+.goals-heat td.gcell-amount.ok   { background: var(--revenu-faint); }
+.goals-heat td.gcell-amount.warn { background: var(--warn-faint); }
+.goals-heat td.gcell-amount.over { background: var(--depense-faint); }
+.goals-heat tr.cur-row td { background: transparent; }
+.goals-heat tr.focus-row .gcell-month {
+  color: var(--accent);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.goals-heat tbody tr:hover .gcell-month { color: var(--accent); }
+
+.gcell-total-c {
+  border-left: 2px solid var(--border-light);
+  padding-left: 0.6rem !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  text-align: right;
+}
+.goals-heat th:last-child { border-left: 2px solid var(--border-light); padding-left: 0.6rem !important; }
+.gcell-total-c .ok   { color: var(--revenu); }
+.gcell-total-c .warn { color: var(--warn); }
+.gcell-total-c .over { color: var(--depense); font-weight: 600; }
+
 @media (max-width: 700px) {
   #view-goals { padding: 1rem; }
   .goals-settings { gap: 0.4rem; }
   .goal-setting-card { min-width: 140px; padding: 0.55rem 0.65rem; }
+
+  .gfocus-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: 'dot name val' 'bar bar bar';
+    gap: 0.3rem 0.55rem;
+  }
+  .gfocus-row .goal-dot { grid-area: dot; }
+  .gfocus-name    { grid-area: name; }
+  .gfocus-val     { grid-area: val; }
+  .gfocus-bar-wrap { grid-area: bar; height: 7px; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

@@ -414,6 +414,7 @@ const state = {
   currentMonth: today.getMonth(),
   selectedDate: null,
   editingGoal:  null,
+  focusMonth:   today.getMonth(),
 };
 
 let modalRecurDays   = [];   // jours sélectionnés dans le modal récurrence
@@ -1194,16 +1195,74 @@ function renderGoals() {
   }
   html += `</div>`;
 
-  // Tableau annuel — toutes les categories de depenses
+  // Chiffres d'une catégorie pour un mois : réel + récurrence + plafond
+  const monthCache = {};
+  const dataForMonth = m => (monthCache[m] ??= getMonthData(currentYear, m));
+  const catFigures = (cat, m) => {
+    const amount = dataForMonth(m)
+      .filter(e => e.type === 'depense' && e.category === cat.id)
+      .reduce((s, e) => s + e.amount, 0);
+    const r       = recurExpected(cat.id, currentYear, m);
+    const goal    = getGoalForMonth(cat.id, currentYear, m);
+    const denom   = goal ? Math.max(goal, r) : (r || null); // jamais sous l'objectif fixé
+    const total   = amount + (r > 0 ? r : 0);
+    const planned = goal ? Math.max(goal, r) : r;
+    let cls = '';
+    if (r > 0)           cls = amount === 0 ? 'ok' : goalClass(total, denom);
+    else if (amount > 0) cls = denom ? goalClass(amount, denom) : '';
+    return { amount, r, goal, denom, total, planned, cls };
+  };
+
+  // ── Mois en avant : liste verticale des catégories ────────────────────────
+  const focusM    = state.focusMonth;
+  const focusRows = tableCats
+    .map(cat => ({ cat, f: catFigures(cat, focusM) }))
+    .filter(({ f }) => f.total > 0 || f.goal > 0)
+    .sort((a, b) => b.f.total - a.f.total || b.f.planned - a.f.planned);
+
+  const focusActual  = focusRows.reduce((s, { f }) => s + f.total, 0);
+  const focusPlanned = tableCats.reduce((s, cat) => s + catFigures(cat, focusM).planned, 0);
+  const focusCls     = goalClass(focusActual, focusPlanned);
+
+  html += `
+    <div class="goal-focus">
+      <div class="goal-focus-head">
+        <div class="goal-focus-title">${MONTHS[focusM]} ${currentYear}</div>
+        <div class="goal-focus-sub">
+          <span class="${focusCls}">${focusActual > 0 ? fmtEUR(focusActual) : '—'}</span>
+          <span class="goal-focus-sep">/ ${focusPlanned > 0 ? fmtEUR(focusPlanned) : '—'} prévu</span>
+        </div>
+      </div>
+      <div class="goal-focus-list">`;
+
+  if (focusRows.length === 0) {
+    html += `<div class="goal-focus-empty">Aucune dépense ni objectif ce mois-ci.</div>`;
+  }
+  for (const { cat, f } of focusRows) {
+    const barWidth = f.denom ? Math.min(100, f.total / f.denom * 100).toFixed(0) : 0;
+    const val = f.denom
+      ? `<span class="${f.cls}">${fmtCompact(f.total)}</span><span class="gcell-lim"> / ${fmtCompact(f.denom)}</span>`
+      : `<span class="${f.cls}">${f.total > 0 ? fmtCompact(f.total) : '—'}</span>`;
+    html += `
+      <div class="gfocus-row">
+        <span class="goal-dot" style="background:${cat.color}"></span>
+        <span class="gfocus-name">${cat.label}</span>
+        <div class="gfocus-bar-wrap">${f.denom ? `<div class="gfocus-bar ${f.cls}" style="width:${barWidth}%"></div>` : ''}</div>
+        <span class="gfocus-val">${val}</span>
+      </div>`;
+  }
+  html += `</div></div>`;
+
+  // ── Aperçu année : heatmap (couleur = ratio, clic = met le mois en avant) ──
   const abbrev = label => label
     .replace('Abonnements', 'Abo.')
     .replace(' Loisirs', ' L.')
     .replace(' Appart', ' A.');
 
   html += `
-    <div class="goals-year-header">${currentYear}</div>
+    <div class="goals-year-header">${currentYear} <span class="goals-year-hint">— touchez un mois</span></div>
     <div class="goals-year-wrap">
-      <table class="goals-year-table">
+      <table class="goals-year-table goals-heat">
         <thead><tr>
           <th>Mois</th>
           ${tableCats.map(c => `<th title="${c.label}"><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:2px;vertical-align:middle"></span>${abbrev(c.label)}</th>`).join('')}
@@ -1215,87 +1274,38 @@ function renderGoals() {
     const isCurrent = m === nowMonth && currentYear === nowYear;
     const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
     const isPast    = !isCurrent && !isFuture;
-    const monthData = getMonthData(currentYear, m);
 
-    const amounts = tableCats.map(cat =>
-      monthData.filter(e => e.type === 'depense' && e.category === cat.id)
-               .reduce((s, e) => s + e.amount, 0)
-    );
+    let rowActual = 0, rowPlanned = 0;
+    const cells = tableCats.map(cat => {
+      const f = catFigures(cat, m);
+      rowActual  += f.total;
+      rowPlanned += f.planned;
+      let display = '—', cls = f.cls;
+      if (f.total > 0)            display = fmtCompact(f.total);
+      else if (f.goal && !isPast) { display = `<span class="gcell-lim">${fmtCompact(f.goal)}</span>`; cls = ''; }
+      return `<td class="gcell-amount ${cls}">${display}</td>`;
+    }).join('');
 
-    // Budget planifié : max(objectif, récurrence) pour ne pas descendre sous l'objectif fixé
-    const rowPlanned = tableCats.reduce((s, cat) => {
-      const r = recurExpected(cat.id, currentYear, m);
-      const g = getGoalForMonth(cat.id, currentYear, m);
-      return s + (g ? Math.max(g, r) : r);
-    }, 0);
-
-    const rowActual = tableCats.reduce((s, cat, i) => {
-      const r = recurExpected(cat.id, currentYear, m);
-      return s + amounts[i] + (r > 0 ? r : 0);
-    }, 0);
-    const pct       = rowPlanned > 0 ? rowActual / rowPlanned : 0;
     const totalCls  = goalClass(rowActual, rowPlanned);
+    const totalCell = (rowActual > 0 || rowPlanned > 0)
+      ? `<span class="${totalCls}">${rowActual > 0 ? fmtCompact(rowActual) : '—'}</span>${rowPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(rowPlanned)}</span>` : ''}`
+      : '—';
 
-    html += `<tr${isCurrent ? ' class="cur-row"' : ''}>`;
-    html += `<td class="gcell-month">${MONTHS_SHORT[m]}</td>`;
-
-    amounts.forEach((amount, i) => {
-      const cat   = tableCats[i];
-      const r     = recurExpected(cat.id, currentYear, m);
-      const goal  = getGoalForMonth(cat.id, currentYear, m);
-      const denom = goal ? Math.max(goal, r) : (r || null); // jamais descendre sous l'objectif fixé
-      let cls = '', display = '', limitStr = '';
-
-      if (r > 0) {
-        // Récurrence : montant réel = transactions + récurrence
-        const total = amount + r;
-        const p = denom > 0 ? total / denom : 0;
-        cls     = amount === 0 ? 'ok' : (p > 1 ? 'over' : p >= GOAL_WARN_RATIO ? 'warn' : 'ok');
-        display = fmtCompact(total);
-        limitStr = denom ? `<span class="gcell-lim">/${fmtCompact(denom)}</span>` : '';
-      } else if (amount > 0) {
-        display = fmtCompact(amount);
-        if (denom) {
-          cls = goalClass(amount, denom);
-          limitStr = `<span class="gcell-lim">/${fmtCompact(denom)}</span>`;
-        }
-      } else if (goal && !isPast) {
-        display = `<span class="gcell-lim">${fmtCompact(goal)}</span>`;
-      } else {
-        display = '—';
-      }
-
-      html += `<td class="gcell-amount ${cls}">${display}${limitStr}</td>`;
-    });
-
-    const barWidth = rowPlanned > 0 ? Math.min(100, pct * 100).toFixed(0) : 0;
-    html += `<td class="gcell-total">
-      <div class="gcell-total-2l">
-        <div class="gcell-total-row">
-          <span class="gcell-total-lbl">Réel</span>
-          <span class="${totalCls}">${rowActual > 0 ? fmtEUR(rowActual) : '—'}</span>
-        </div>
-        <div class="gcell-total-row">
-          <span class="gcell-total-lbl">Prévu</span>
-          <span class="gcell-total-plan">${rowPlanned > 0 ? fmtEUR(rowPlanned) : '—'}</span>
-        </div>
-        ${rowPlanned > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${totalCls}" style="width:${barWidth}%"></div></div>` : ''}
-      </div>
-    </td>`;
-    html += `</tr>`;
+    const rowCls = [isCurrent ? 'cur-row' : '', m === focusM ? 'focus-row' : ''].filter(Boolean).join(' ');
+    html += `<tr class="${rowCls}" data-focus-month="${m}">
+      <td class="gcell-month">${MONTHS_SHORT[m]}</td>
+      ${cells}
+      <td class="gcell-total-c">${totalCell}</td>
+    </tr>`;
   }
 
-  // Totaux annuels par colonne : réel / planifié (récurrence prioritaire, sinon objectif)
+  // Totaux annuels par colonne : réel / planifié
   const colData = tableCats.map(cat => {
     let actual = 0, planned = 0;
     for (let m2 = 0; m2 < 12; m2++) {
-      const manualDep = getMonthData(currentYear, m2)
-        .filter(e => e.type === 'depense' && e.category === cat.id)
-        .reduce((s, e) => s + e.amount, 0);
-      const r = recurExpected(cat.id, currentYear, m2);
-      const g = getGoalForMonth(cat.id, currentYear, m2);
-      actual  += manualDep + (r > 0 ? r : 0);
-      planned += g ? Math.max(g, r) : r;
+      const f = catFigures(cat, m2);
+      actual  += f.total;
+      planned += f.planned;
     }
     return { actual, planned };
   });
@@ -1304,29 +1314,17 @@ function renderGoals() {
 
   const tFootCells = colData.map(({ actual, planned }) => {
     const cls = goalClass(actual, planned);
-    const lim = planned > 0 ? `<span class="gcell-lim">/${fmtCompact(planned)}</span>` : '';
-    return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}${lim}</td>`;
+    return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}</td>`;
   }).join('');
   const grandCls = goalClass(grandActual, grandPlanned);
-  const grandBarWidth = grandPlanned > 0 ? Math.min(100, grandActual / grandPlanned * 100).toFixed(0) : 0;
 
   html += `</tbody>
     <tfoot>
       <tr class="goals-foot">
         <td class="gcell-month">Total</td>
         ${tFootCells}
-        <td class="gcell-total">
-          <div class="gcell-total-2l">
-            <div class="gcell-total-row">
-              <span class="gcell-total-lbl">Réel</span>
-              <span class="${grandCls}">${grandActual > 0 ? fmtEUR(grandActual) : '—'}</span>
-            </div>
-            <div class="gcell-total-row">
-              <span class="gcell-total-lbl">Prévu</span>
-              <span class="gcell-total-plan">${grandPlanned > 0 ? fmtEUR(grandPlanned) : '—'}</span>
-            </div>
-            ${grandPlanned > 0 ? `<div class="goal-bar-wrap gbar-sm"><div class="goal-bar ${grandCls}" style="width:${grandBarWidth}%"></div></div>` : ''}
-          </div>
+        <td class="gcell-total-c">
+          <span class="${grandCls}">${grandActual > 0 ? fmtCompact(grandActual) : '—'}</span>${grandPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(grandPlanned)}</span>` : ''}
         </td>
       </tr>
     </tfoot>
@@ -1334,6 +1332,12 @@ function renderGoals() {
   container.innerHTML = html;
 
   // Evenements
+  container.querySelectorAll('[data-focus-month]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      state.focusMonth = +tr.dataset.focusMonth;
+      renderGoals();
+    });
+  });
   container.querySelectorAll('.btn-set-goal').forEach(btn => {
     btn.addEventListener('click', () => {
       state.editingGoal = btn.dataset.cat;

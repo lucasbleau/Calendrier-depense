@@ -1536,24 +1536,34 @@ body {
 .gcell-total-c .warn { color: var(--warn); }
 .gcell-total-c .over { color: var(--depense); font-weight: 600; }
 
-/* Sous-onglets Objectifs (Synthèse / Détail) */
+/* Sous-onglets Objectifs (Synthèse / Détail) — même style que .view-tabs */
 .goals-subtabs {
-  display: flex;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-  border-bottom: 1px solid var(--border-light);
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 1.25rem;
 }
 .goals-subtab {
-  padding: 0.45rem 0.9rem;
+  padding: 0.35rem 1rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-muted);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.15s;
 }
 .goals-subtab:hover { color: var(--text-2); }
-.goals-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.goals-subtab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(31, 35, 41, 0.12);
+}
 
 /* Sous-page Détail */
 .detail-chips {
@@ -1567,11 +1577,13 @@ body {
   align-items: center;
   gap: 0.4rem;
   padding: 0.35rem 0.7rem;
+  font-family: var(--font-body);
   font-size: 12.5px;
   border: 1px solid var(--border-light);
   border-radius: 99px;
   background: var(--surface);
   color: var(--text-2);
+  cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 .detail-chip:hover { border-color: var(--border); }
@@ -1624,7 +1636,11 @@ body {
   gap: 0.6rem;
   width: 100%;
   padding: 0.6rem 0.85rem;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
   text-align: left;
+  cursor: pointer;
   transition: background 0.15s;
 }
 .detail-month-head:hover { background: var(--accent-faint); }

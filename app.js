@@ -1201,12 +1201,19 @@ function renderGoals() {
 
   if (state.goalsTab === 'detail') { renderGoalsDetail(container); return; }
 
-  const goalCats  = isOwner() ? GOAL_CATEGORIES.map(id => getCat(id)) : [];
+  // Owner : budgets ville calculés + catégories suivies hardcodées.
+  // Autres comptes : objectif mensuel manuel sur chacune de leurs catégories de dépense.
+  const goalCats  = isOwner()
+    ? GOAL_CATEGORIES.map(id => getCat(id))
+    : CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
   const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
 
-  // Ligne de reglage / info des objectifs (cartes des budgets ville : owner only)
+  // Ligne de reglage / info des objectifs
   let html = goalsSubTabsHtml();
-  if (goalCats.length) html += `<div class="goals-settings">`;
+  if (goalCats.length) {
+    if (!isOwner()) html += `<p class="goals-settings-hint">Définissez un objectif mensuel par catégorie en cliquant sur ✏.</p>`;
+    html += `<div class="goals-settings">`;
+  }
   for (const cat of goalCats) {
     const rates = DAILY_RATES[cat.id];
     if (rates) {

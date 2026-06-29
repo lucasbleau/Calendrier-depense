@@ -1,10 +1,11 @@
 const { withDb } = require('./_lib');
 
-module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res, client) => {
-  // ── GET : toutes les catégories ──────────────────────────────────────────
+module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res, client, uid) => {
+  // ── GET : catégories de l'utilisateur ────────────────────────────────────
   if (req.method === 'GET') {
     const { rows } = await client.query(
-      'SELECT id, label, color FROM categories ORDER BY created_at ASC'
+      'SELECT id, label, color FROM categories WHERE user_id = $1 ORDER BY created_at ASC',
+      [uid]
     );
     return res.json(rows);
   }
@@ -16,10 +17,10 @@ module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res
       return res.status(400).json({ error: 'Champs id, label et color requis' });
     }
     await client.query(
-      `INSERT INTO categories (id, label, color)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (id) DO UPDATE SET label = $2, color = $3`,
-      [id, label, color]
+      `INSERT INTO categories (user_id, id, label, color)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, id) DO UPDATE SET label = $3, color = $4`,
+      [uid, id, label, color]
     );
     return res.json({ ok: true });
   }
@@ -30,7 +31,7 @@ module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res
     if (!id) return res.status(400).json({ error: 'Paramètre id requis' });
 
     try {
-      await client.query('DELETE FROM categories WHERE id = $1', [id]);
+      await client.query('DELETE FROM categories WHERE user_id = $1 AND id = $2', [uid, id]);
     } catch (err) {
       if (err.code === '23503') {
         return res.status(409).json({ error: 'Catégorie utilisée par des opérations existantes' });

@@ -1905,6 +1905,37 @@ body {
   margin-top: -0.4rem;
 }
 
+.auth-toggle-line {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: -0.3rem;
+}
+.auth-toggle-link {
+  color: var(--accent);
+  font-weight: 500;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0.15rem;
+}
+.auth-toggle-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+.header-user {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 0.2rem 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-light);
+  border-radius: 99px;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Bouton Aujourd'hui + Légende
    ───────────────────────────────────────────────────────────────────────────── */

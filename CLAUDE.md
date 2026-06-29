@@ -90,13 +90,17 @@ Deux modes complémentaires :
 - **Supprimer** : ✕ actif uniquement si catégorie non système et non utilisée par des opérations
 - Modifications propagées instantanément aux dropdowns des modals
 
-### Authentification
+### Authentification (multi-utilisateurs)
 
-- Overlay de code d'accès (PIN) à l'ouverture du site en production
-- PIN vérifié côté serveur (`APP_PIN` env var) — jamais exposé dans le JS client
-- Token renvoyé par `/api/auth` et stocké en `sessionStorage` ; envoyé via `x-auth-token` sur toutes les requêtes API
-- Toutes les routes API vérifient ce token (`APP_TOKEN` env var) → 401 si absent/invalide
-- En local (`file://` ou `localhost`) : aucune auth, l'overlay n'est jamais affiché
+- **Comptes** : chaque utilisateur a un compte `username` + `PIN` (4-6 chiffres). Overlay de connexion/inscription à l'ouverture en production.
+- **Inscription libre** : n'importe qui avec l'URL peut créer un compte (`POST /api/auth {action:'register'}`).
+- **Sécurité** : PIN haché en **scrypt** (sel par utilisateur) côté serveur — jamais stocké en clair. Verrou anti-bruteforce (15 min après 5 échecs).
+- **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), username en `USER_KEY`. Envoyé via `x-auth-token`.
+- **Isolation des données (critique)** : `withDb` (`api/_lib.js`) extrait l'`user_id` du token vérifié et le passe à chaque route. **Toutes** les requêtes sont filtrées par `user_id` (WHERE + INSERT + `UPDATE/DELETE … WHERE id=$ AND user_id=$`). L'`user_id` ne vient jamais du body/query. Un utilisateur ne peut ni lire ni modifier les données d'un autre, même en forgeant un id.
+- **Catégories par compte** : seedées (12 défauts) à l'inscription, isolées par `user_id` (PK composite `(user_id, id)`).
+- **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:username`) pour éviter toute fuite inter-comptes sur un appareil partagé.
+- **Déconnexion** : bouton header → vide `sessionStorage` et recharge.
+- En local (`file://` ou `localhost`) : aucune auth, mono-utilisateur localStorage, overlay jamais affiché.
 
 ## Spécifications techniques
 
@@ -118,10 +122,12 @@ package.json    — dépendance pg + engines.node 20.x
 schema.sql      — migrations à exécuter une fois dans la base Postgres
 .gitignore
 api/
-  auth.js       — POST /api/auth : vérifie APP_PIN, renvoie APP_TOKEN
-  expenses.js   — GET / POST / DELETE : table expenses
-  recurring.js  — GET / POST / DELETE : table recurring_tasks
-  goals.js      — GET / POST / DELETE : table goals
+  _lib.js       — pool pg, withDb (CORS+auth+user_id), tokens signés, hachage PIN scrypt, catégories par défaut
+  auth.js       — POST /api/auth : register / login (username + PIN), renvoie token signé
+  expenses.js   — GET / POST / PUT / DELETE : table expenses (scopée user_id)
+  recurring.js  — GET / POST / DELETE : table recurring_tasks (scopée user_id)
+  goals.js      — GET / POST / DELETE : table goals (scopée user_id)
+  categories.js — GET / POST / DELETE : table categories (scopée user_id)
 ```
 
 ### Modèle de données
@@ -172,7 +178,10 @@ type Goals = Record<string, number>; // category → limite mensuelle en €
 | `expense-calendar-recurring-v1` | `RecurringTask[]` |
 | `expense-calendar-goals-v1` | `Goals` |
 | `expense-calendar-categories-v1` | `Category[]` (si modifié, sinon défauts hardcodés) |
-| `expense-calendar-auth-v1` | Token d'auth (sessionStorage) |
+| `expense-calendar-auth-v1` | Token d'auth signé (sessionStorage) |
+| `expense-calendar-user-v1` | Username du compte connecté (sessionStorage) |
+
+> En mode déployé, les caches hors-ligne de données sont suffixés par `:username` (cloisonnement par compte).
 
 ### Conventions UI
 
@@ -198,31 +207,36 @@ Les **catégories** sont toujours en localStorage (même en mode déployé) car 
 ### Tables SQL (cf. `schema.sql`)
 
 ```sql
-expenses        — id, date, label, amount, type, category, created_at
-recurring_tasks — id, label, amount, type, category, days (JSON), created_at
-goals           — category (PK), amount, updated_at
+users           — id (PK), username, username_lc (unique), pin_hash, pin_salt, failed_count, locked_until, created_at
+expenses        — id (PK), user_id, date, label, amount, type, category, created_at
+recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
+goals           — (user_id, category) PK, amount, updated_at
+categories      — (user_id, id) PK, label, color, created_at
 ```
+
+> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve.
 
 ## Déploiement
 
 ### Architecture
 
 ```
-Browser → /api/auth         → vérifie APP_PIN, renvoie APP_TOKEN
-Browser → /api/expenses     → Postgres (expenses)       ← token requis
-Browser → /api/recurring    → Postgres (recurring_tasks) ← token requis
-Browser → /api/goals        → Postgres (goals)           ← token requis
+Browser → /api/auth         → register/login, renvoie un token signé (user_id)
+Browser → /api/expenses     → Postgres (expenses WHERE user_id)       ← token requis
+Browser → /api/recurring    → Postgres (recurring_tasks WHERE user_id) ← token requis
+Browser → /api/goals        → Postgres (goals WHERE user_id)           ← token requis
+Browser → /api/categories   → Postgres (categories WHERE user_id)      ← token requis
 ```
 
 ### Variables d'environnement Vercel
 
-| Variable      | Description                                                |
-|---------------|------------------------------------------------------------|
-| `POSTGRES_URL` | URL de connexion Postgres (`postgresql://...`)            |
-| `APP_PIN`     | Code saisi par l'utilisateur pour accéder au site         |
-| `APP_TOKEN`   | Secret interne envoyé avec chaque requête API (générer une chaîne aléatoire longue) |
+| Variable           | Description                                                |
+|--------------------|------------------------------------------------------------|
+| `POSTGRES_URL`     | URL de connexion Postgres (`postgresql://...`)            |
+| `APP_TOKEN_SECRET` | Secret de signature des tokens (chaîne aléatoire longue). **Obligatoire** en prod. |
 
-> Si `APP_PIN` / `APP_TOKEN` ne sont pas définis : l'auth est désactivée (tout token accepté). Définir les deux pour activer la protection.
+> `APP_PIN` / `APP_TOKEN` (ancien système mono-utilisateur) ne sont plus utilisés.
+> Si `APP_TOKEN_SECRET` n'est pas défini, un secret de dev par défaut est utilisé (à ne pas laisser en prod).
 
 ### Structure du projet
 
@@ -276,7 +290,7 @@ Browser → /api/goals        → Postgres (goals)           ← token requis
 
 ## Hors scope
 
-- Gestion multi-utilisateur (authentification forte, sessions, rôles)
+- Authentification forte (2FA, OAuth, rôles/admin) — l'auth actuelle est username + PIN haché, suffisante pour un cercle de confiance
 - Conseils financiers automatisés ou prévisions IA
 - Intégration directe avec les API bancaires (DSP2, Bridge, Powens)
 - Gestion d'investissements (PEA, actions, crypto)

@@ -1,10 +1,12 @@
 const { withDb, validateExpense } = require('./_lib');
 
-module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, res, client) => {
-  // ── GET : récupérer toutes les dépenses ──────────────────────────────
+module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, res, client, uid) => {
+  // ── GET : récupérer toutes les dépenses de l'utilisateur ─────────────
   if (req.method === 'GET') {
     const { rows } = await client.query(
-      'SELECT id, date, label, amount::float AS amount, type, category FROM expenses ORDER BY date DESC, created_at DESC'
+      `SELECT id, date, label, amount::float AS amount, type, category
+       FROM expenses WHERE user_id = $1 ORDER BY date DESC, created_at DESC`,
+      [uid]
     );
     return res.json(rows);
   }
@@ -21,15 +23,16 @@ module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, r
     for (const item of items) {
       const { id, date, label, amount, type, category } = item;
       await client.query(
-        'INSERT INTO expenses (id, date, label, amount, type, category) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING',
-        [id, date, label, amount, type, category]
+        `INSERT INTO expenses (id, date, label, amount, type, category, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+        [id, date, label, amount, type, category, uid]
       );
     }
 
     return res.json({ ok: true, count: items.length });
   }
 
-  // ── PUT : modifier une dépense existante ────────────────────────────
+  // ── PUT : modifier une dépense existante (seulement la sienne) ───────
   if (req.method === 'PUT') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'Paramètre id requis' });
@@ -39,18 +42,18 @@ module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, r
     if (err) return res.status(400).json({ error: err });
 
     await client.query(
-      'UPDATE expenses SET label = $1, amount = $2, type = $3, category = $4 WHERE id = $5',
-      [label, amount, type, category, id]
+      'UPDATE expenses SET label = $1, amount = $2, type = $3, category = $4 WHERE id = $5 AND user_id = $6',
+      [label, amount, type, category, id, uid]
     );
     return res.json({ ok: true });
   }
 
-  // ── DELETE : supprimer une dépense ───────────────────────────────────
+  // ── DELETE : supprimer une dépense (seulement la sienne) ─────────────
   if (req.method === 'DELETE') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'Paramètre id requis' });
 
-    await client.query('DELETE FROM expenses WHERE id = $1', [id]);
+    await client.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [id, uid]);
     return res.json({ ok: true });
   }
 

@@ -8,6 +8,7 @@ const STORAGE_KEY    = 'expense-calendar-data-v1';
 const RECURRING_KEY  = 'expense-calendar-recurring-v1';
 const GOALS_KEY      = 'expense-calendar-goals-v1';
 const AUTH_KEY       = 'expense-calendar-auth-v1';
+const USER_KEY       = 'expense-calendar-user-v1';
 const CATEGORIES_KEY = 'expense-calendar-categories-v1';
 const OVERRIDES_KEY  = 'expense-calendar-recurring-overrides-v1';
 
@@ -100,6 +101,14 @@ function apiFetch(url, options = {}) {
   return fetch(url, { ...options, headers });
 }
 
+// Cache hors-ligne cloisonné par compte en mode déployé : empêche tout accès
+// aux données d'un autre utilisateur sur un appareil partagé. En local : clé simple.
+function userCacheKey(base) {
+  if (!IS_DEPLOYED) return base;
+  const u = sessionStorage.getItem(USER_KEY);
+  return u ? `${base}:${u}` : base;
+}
+
 // Factory de couche de stockage : mutualise le dual-mode (localStorage / API).
 // readLocal() lit la collection persistée ; writeLocal() sérialise l'état courant.
 function makeStore({ endpoint, readLocal, writeLocal, parseLoad }) {
@@ -107,7 +116,7 @@ function makeStore({ endpoint, readLocal, writeLocal, parseLoad }) {
     async load() {
       if (!IS_DEPLOYED) return readLocal();
       const res = await apiFetch(endpoint);
-      if (!res.ok) throw new Error(`Chargement ${endpoint} échoué`);
+      if (!res.ok) { const e = new Error(`Chargement ${endpoint} échoué`); e.status = res.status; throw e; }
       const data = await res.json();
       return parseLoad ? parseLoad(data) : data;
     },
@@ -188,7 +197,7 @@ const CatDB = {
   async upsert(cat) {
     // CATEGORIES est déjà muté par l'appelant : send() sérialise l'état courant en local
     await categoriesStore.send('POST', { body: cat });
-    if (IS_DEPLOYED) localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+    if (IS_DEPLOYED) localStorage.setItem(userCacheKey(CATEGORIES_KEY), JSON.stringify(CATEGORIES));
   },
   // En local, la persistance est faite par l'appelant APRÈS le filtrage (cf. deleteCategory)
   async remove(id) {
@@ -1688,7 +1697,7 @@ async function deleteCategory(id) {
     return;
   }
   CATEGORIES = CATEGORIES.filter(c => c.id !== id);
-  localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+  localStorage.setItem(userCacheKey(CATEGORIES_KEY), JSON.stringify(CATEGORIES));
   populateCategoryDropdowns();
   renderCategories();
   showToast('Catégorie supprimée');
@@ -2025,9 +2034,13 @@ async function init() {
     selYear.appendChild(opt);
   }
 
-  // Catégories — localStorage pour affichage immédiat avant auth
-  const cachedCats = localStorage.getItem(CATEGORIES_KEY);
-  if (cachedCats) { try { CATEGORIES = JSON.parse(cachedCats); } catch {} }
+  // Catégories — cache local pour affichage immédiat (uniquement si on connaît
+  // déjà le compte : en local, ou en déployé avec session active). Évite d'afficher
+  // les catégories d'un autre compte avant connexion.
+  if (!IS_DEPLOYED || sessionStorage.getItem(USER_KEY)) {
+    const cachedCats = localStorage.getItem(userCacheKey(CATEGORIES_KEY));
+    if (cachedCats) { try { CATEGORIES = JSON.parse(cachedCats); } catch {} }
+  }
   populateCategoryDropdowns();
 
   // Navigation
@@ -2115,10 +2128,12 @@ async function init() {
   $('btn-add-recurring').addEventListener('click', () => openRecurringModal());
 
   // Auth overlay
-  $('btn-auth-submit').addEventListener('click', submitPin);
-  $('auth-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') submitPin();
-  });
+  $('btn-auth-submit').addEventListener('click', submitAuth);
+  $('btn-auth-toggle').addEventListener('click', toggleAuthMode);
+  $('auth-username').addEventListener('keydown', e => { if (e.key === 'Enter') $('auth-input').focus(); });
+  $('auth-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+  $('auth-input').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, ''); });
+  $('btn-logout').addEventListener('click', logout);
 
   // Auth gate (production uniquement)
   if (IS_DEPLOYED && !sessionStorage.getItem(AUTH_KEY)) {
@@ -2126,7 +2141,38 @@ async function init() {
     return; // le chargement des données sera déclenché après auth réussie
   }
 
+  if (IS_DEPLOYED) showLoggedInUser();
   await loadAndRender();
+}
+
+// Mode de l'overlay : 'login' (défaut) ou 'register'
+let authMode = 'login';
+
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  const isReg = authMode === 'register';
+  $('auth-subtitle').textContent   = isReg ? 'Créez votre compte' : 'Connectez-vous à votre compte';
+  $('btn-auth-submit').textContent = isReg ? 'Créer mon compte'    : 'Se connecter';
+  $('auth-toggle-text').textContent = isReg ? 'Déjà un compte ?'   : 'Pas encore de compte ?';
+  $('btn-auth-toggle').textContent  = isReg ? 'Se connecter'       : 'Créer un compte';
+  $('auth-input').setAttribute('autocomplete', isReg ? 'new-password' : 'current-password');
+  $('auth-error').classList.add('hidden');
+  $('auth-username').focus();
+}
+
+function showLoggedInUser() {
+  const name = sessionStorage.getItem(USER_KEY);
+  if (!name) return;
+  const el = $('header-user');
+  el.textContent = name;
+  el.classList.remove('hidden');
+  $('btn-logout').classList.remove('hidden');
+}
+
+function logout() {
+  sessionStorage.removeItem(AUTH_KEY);
+  sessionStorage.removeItem(USER_KEY);
+  location.reload();
 }
 
 async function loadAndRender() {
@@ -2137,15 +2183,25 @@ async function loadAndRender() {
     [state.expenses, state.recurring, state.goals] = await Promise.all([DB.load(), RDB.load(), GoalDB.load()]);
     // Cache local du dernier chargement réussi → alimente le fallback hors ligne ci-dessous
     if (IS_DEPLOYED) {
-      localStorage.setItem(STORAGE_KEY,   JSON.stringify(state.expenses));
-      localStorage.setItem(RECURRING_KEY, JSON.stringify(state.recurring));
-      localStorage.setItem(GOALS_KEY,     JSON.stringify(state.goals));
+      localStorage.setItem(userCacheKey(STORAGE_KEY),   JSON.stringify(state.expenses));
+      localStorage.setItem(userCacheKey(RECURRING_KEY), JSON.stringify(state.recurring));
+      localStorage.setItem(userCacheKey(GOALS_KEY),     JSON.stringify(state.goals));
     }
-  } catch {
+  } catch (err) {
+    // Token invalide/expiré → on force une reconnexion plutôt que d'afficher un cache
+    if (IS_DEPLOYED && err && err.status === 401) {
+      sessionStorage.removeItem(AUTH_KEY);
+      sessionStorage.removeItem(USER_KEY);
+      overlay.classList.add('hidden');
+      $('header-user').classList.add('hidden');
+      $('btn-logout').classList.add('hidden');
+      $('auth-overlay').classList.remove('hidden');
+      return;
+    }
     showToast('Erreur de connexion — mode hors ligne activé');
-    state.expenses  = JSON.parse(localStorage.getItem(STORAGE_KEY)   || '[]');
-    state.recurring = JSON.parse(localStorage.getItem(RECURRING_KEY) || '[]');
-    state.goals     = JSON.parse(localStorage.getItem(GOALS_KEY)     || '{}');
+    state.expenses  = JSON.parse(localStorage.getItem(userCacheKey(STORAGE_KEY))   || '[]');
+    state.recurring = JSON.parse(localStorage.getItem(userCacheKey(RECURRING_KEY)) || '[]');
+    state.goals     = JSON.parse(localStorage.getItem(userCacheKey(GOALS_KEY))     || '{}');
   } finally {
     overlay.classList.add('hidden');
   }
@@ -2155,7 +2211,7 @@ async function loadAndRender() {
     const savedCats = await CatDB.load();
     if (savedCats && savedCats.length > 0) {
       CATEGORIES = savedCats;
-      if (IS_DEPLOYED) localStorage.setItem(CATEGORIES_KEY, JSON.stringify(CATEGORIES));
+      if (IS_DEPLOYED) localStorage.setItem(userCacheKey(CATEGORIES_KEY), JSON.stringify(CATEGORIES));
       populateCategoryDropdowns();
     }
   } catch {}
@@ -2163,12 +2219,21 @@ async function loadAndRender() {
   renderCalendar();
 }
 
-async function submitPin() {
-  const input = $('auth-input');
-  const error = $('auth-error');
-  const btn   = $('btn-auth-submit');
-  const pin   = input.value.trim();
-  if (!pin) { input.focus(); return; }
+async function submitAuth() {
+  const userInput = $('auth-username');
+  const pinInput  = $('auth-input');
+  const error     = $('auth-error');
+  const btn       = $('btn-auth-submit');
+  const username  = userInput.value.trim();
+  const pin       = pinInput.value.trim();
+
+  if (!username) { userInput.focus(); return; }
+  if (!/^\d{4,6}$/.test(pin)) {
+    error.textContent = 'Le PIN doit comporter 4 à 6 chiffres.';
+    error.classList.remove('hidden');
+    pinInput.focus();
+    return;
+  }
 
   btn.disabled = true;
   error.classList.add('hidden');
@@ -2177,17 +2242,20 @@ async function submitPin() {
     const res = await fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ action: authMode, username, pin }),
     });
-    if (res.ok) {
-      const { token } = await res.json();
-      sessionStorage.setItem(AUTH_KEY, token);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.token) {
+      sessionStorage.setItem(AUTH_KEY, data.token);
+      sessionStorage.setItem(USER_KEY, data.username || username);
       $('auth-overlay').classList.add('hidden');
+      showLoggedInUser();
       await loadAndRender();
     } else {
+      error.textContent = data.error || 'Identifiant ou PIN incorrect.';
       error.classList.remove('hidden');
-      input.value = '';
-      input.focus();
+      pinInput.value = '';
+      pinInput.focus();
     }
   } catch {
     error.textContent = 'Erreur de connexion. Réessayez.';

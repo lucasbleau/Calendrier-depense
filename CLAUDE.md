@@ -97,7 +97,8 @@ Deux modes complémentaires :
 - **Sécurité** : PIN haché en **scrypt** (sel par utilisateur) côté serveur — jamais stocké en clair. Verrou anti-bruteforce (15 min après 5 échecs).
 - **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), username en `USER_KEY`. Envoyé via `x-auth-token`.
 - **Isolation des données (critique)** : `withDb` (`api/_lib.js`) extrait l'`user_id` du token vérifié et le passe à chaque route. **Toutes** les requêtes sont filtrées par `user_id` (WHERE + INSERT + `UPDATE/DELETE … WHERE id=$ AND user_id=$`). L'`user_id` ne vient jamais du body/query. Un utilisateur ne peut ni lire ni modifier les données d'un autre, même en forgeant un id.
-- **Catégories par compte** : seedées (12 défauts) à l'inscription, isolées par `user_id` (PK composite `(user_id, id)`).
+- **Catégories par compte** : isolées par `user_id` (PK composite `(user_id, id)`). À l'inscription, seules **2 catégories structurelles** sont seedées (`Revenus`, `Autre`) — les nouveaux comptes partent neutres et créent les leurs.
+- **Compte propriétaire** (`OWNER_USERNAME` dans `app.js`, = `lucas_bleau`) : la config personnelle hardcodée (budgets ville calculés `CITY_DAYS×DAILY_RATES`, catégories suivies `GOAL_CATEGORIES`) ne s'applique **qu'à lui** via `isOwner()`. Les autres comptes n'ont aucun plafond calculé. En local (dev) : toujours owner.
 - **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:username`) pour éviter toute fuite inter-comptes sur un appareil partagé.
 - **Déconnexion** : bouton header → vide `sessionStorage` et recharge.
 - En local (`file://` ou `localhost`) : aucune auth, mono-utilisateur localStorage, overlay jamais affiché.

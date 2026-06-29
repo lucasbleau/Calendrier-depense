@@ -49,20 +49,12 @@ function verifyPin(pin, hash, salt) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Catégories par défaut seedées à l'inscription de chaque utilisateur
+// Catégories seedées à l'inscription : strict minimum structurel (catégorie de
+// revenu + fourre-tout). Chaque utilisateur construit ensuite ses propres
+// catégories. Doit rester aligné avec INCOME_CATEGORY / DEFAULT_CATEGORY (app.js).
 const DEFAULT_CATEGORIES = [
-  ['courses',       'Courses',       '#7B9E6B'],
-  ['voiture',       'Voiture',       '#8B7355'],
-  ['essence',       'Essence',       '#C17F3C'],
-  ['appart',        'Appart',        '#8A6F4E'],
-  ['abonnements',   'Abonnements',   '#7A8FA6'],
-  ['loisirs',       'Loisirs',       '#A67B8A'],
-  ['dijon_loisirs', 'Dijon Loisirs', '#C4856A'],
-  ['dijon_appart',  'Dijon Appart',  '#A0917A'],
-  ['besac_loisirs', 'Besac Loisirs', '#8B7BA8'],
-  ['epargne',       'Épargne',       '#5B8E7D'],
-  ['revenus',       'Revenus',       '#4A7C59'],
-  ['autre',         'Autre',         '#9A9888'],
+  ['revenus', 'Revenus', '#4A7C59'],
+  ['autre',   'Autre',   '#9A9888'],
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

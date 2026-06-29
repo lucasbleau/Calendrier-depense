@@ -91,6 +91,15 @@ const IS_DEPLOYED = (
   window.location.hostname !== '127.0.0.1'
 );
 
+// Compte « propriétaire » : la config personnelle (budgets ville calculés via
+// CITY_DAYS×DAILY_RATES + catégories suivies GOAL_CATEGORIES) ne s'applique qu'à lui.
+// Les autres comptes partent neutres (aucun plafond calculé, pas de catégories suivies).
+// En local (mono-utilisateur dev) : toujours considéré owner.
+const OWNER_USERNAME = 'lucas_bleau';
+function isOwner() {
+  return !IS_DEPLOYED || sessionStorage.getItem(USER_KEY) === OWNER_USERNAME;
+}
+
 // Raccourci DOM
 const $ = (id) => document.getElementById(id);
 
@@ -439,6 +448,7 @@ let editingExpenseId = null; // id de l'opération en cours d'édition (null = c
 // Calcule l'objectif dynamique d'une catégorie pour un mois donné
 // Retourne null si aucune donnée disponible (autre année ou tarif non défini)
 function getDynamicGoal(categoryId, year, month) {
+  if (!isOwner()) return null; // budgets ville calculés : compte propriétaire uniquement
   const yearData = CITY_DAYS[year];
   if (!yearData) return null;
   const days  = yearData[month];
@@ -1191,11 +1201,12 @@ function renderGoals() {
 
   if (state.goalsTab === 'detail') { renderGoalsDetail(container); return; }
 
-  const goalCats  = GOAL_CATEGORIES.map(id => getCat(id));
+  const goalCats  = isOwner() ? GOAL_CATEGORIES.map(id => getCat(id)) : [];
   const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
 
-  // Ligne de reglage / info des objectifs
-  let html = goalsSubTabsHtml() + `<div class="goals-settings">`;
+  // Ligne de reglage / info des objectifs (cartes des budgets ville : owner only)
+  let html = goalsSubTabsHtml();
+  if (goalCats.length) html += `<div class="goals-settings">`;
   for (const cat of goalCats) {
     const rates = DAILY_RATES[cat.id];
     if (rates) {
@@ -1224,7 +1235,7 @@ function renderGoals() {
       html += `</div>`;
     }
   }
-  html += `</div>`;
+  if (goalCats.length) html += `</div>`;
 
   // Chiffres d'une catégorie pour un mois : réel + récurrence + plafond
   const monthCache = {};

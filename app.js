@@ -1408,72 +1408,86 @@ function renderGoalsDetail(container) {
   }
   html += `</div>`;
 
-  // Bilan annuel de la catégorie
-  let yearActual = 0, yearPlanned = 0;
+  // Bilan annuel de la catégorie. Les récurrences attendues sont affichées
+  // comme des opérations (rappels ↺) et incluses dans le total montré, en
+  // cohérence avec la vue Synthèse (total = réel + récurrences).
+  let yearShown = 0, yearPlanned = 0;
   const months = [];
   for (let m = 0; m < 12; m++) {
-    const ops = getMonthData(currentYear, m)
+    const dim = daysIn(currentYear, m);
+    const ym  = ymKey(currentYear, m);
+
+    const realRows = getMonthData(currentYear, m)
       .filter(e => e.type === 'depense' && e.category === cat.id)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    const actual  = ops.reduce((s, e) => s + e.amount, 0);
-    const r       = recurExpected(cat.id, currentYear, m);
+      .map(e => ({ day: +e.date.slice(8, 10), label: e.label, amount: e.amount, recur: false }));
+
+    const recurRows = [];
+    for (const t of state.recurring) {
+      if (t.category !== cat.id || t.type !== 'depense') continue;
+      const ov  = getOverride(t.id, ym);
+      const amt = ov ? ov.amount : t.amount;
+      if (!(amt > 0)) continue;
+      for (const d of t.days) {
+        if (d <= dim) recurRows.push({ day: d, label: t.label, amount: amt, recur: true });
+      }
+    }
+
+    const rows    = [...realRows, ...recurRows].sort((a, b) => a.day - b.day || (a.recur - b.recur));
+    const r       = recurRows.reduce((s, x) => s + x.amount, 0);
+    const shown   = rows.reduce((s, x) => s + x.amount, 0);
     const goal    = getGoalForMonth(cat.id, currentYear, m);
     const planned = goal ? Math.max(goal, r) : r;
     const denom   = goal ? Math.max(goal, r) : (r || null);
-    yearActual  += actual;
+    yearShown   += shown;
     yearPlanned += planned;
-    months.push({ m, ops, actual, r, planned, denom });
+    months.push({ m, rows, shown, denom });
   }
-  const yearCls = goalClass(yearActual, yearPlanned);
+  const yearCls = goalClass(yearShown, yearPlanned);
 
   html += `<div class="detail-head">
-    <div class="detail-head-title"><span class="goal-dot" style="background:${cat.color}"></span>${cat.label} — ${currentYear}</div>
+    <div class="detail-head-title"><span class="goal-dot" style="background:${cat.color}"></span>${cat.label} <span class="detail-head-year">${currentYear}</span></div>
     <div class="detail-head-sub">
-      <span class="${yearCls}">${yearActual > 0 ? fmtEUR(yearActual) : '—'}</span>
+      <span class="${yearCls}">${yearShown > 0 ? fmtEUR(yearShown) : '—'}</span>
       <span class="detail-head-sep">/ ${yearPlanned > 0 ? fmtEUR(yearPlanned) : '—'} prévu</span>
     </div>
   </div>`;
 
   // Accordéon mois par mois
   html += `<div class="detail-months">`;
-  for (const { m, ops, actual, r, planned, denom } of months) {
+  for (const { m, rows, shown, denom } of months) {
     const isCurrent = m === nowMonth && currentYear === nowYear;
     const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
     const open      = m === state.detailMonth;
-    const cls       = denom ? goalClass(actual, denom) : '';
-    const barWidth  = denom ? Math.min(100, actual / denom * 100).toFixed(0) : 0;
+    const cls       = denom ? goalClass(shown, denom) : '';
+    const barWidth  = denom ? Math.min(100, shown / denom * 100).toFixed(0) : 0;
 
     const right = denom
-      ? `<span class="${cls}">${fmtCompact(actual)}</span><span class="gcell-lim"> / ${fmtCompact(denom)}</span>`
-      : `<span class="${cls}">${actual > 0 ? fmtCompact(actual) : '—'}</span>`;
+      ? `<span class="${cls}">${fmtCompact(shown)}</span><span class="gcell-lim"> / ${fmtCompact(denom)}</span>`
+      : `<span class="${cls}">${shown > 0 ? fmtCompact(shown) : '—'}</span>`;
 
     html += `<div class="detail-month ${open ? 'open' : ''}">
       <button class="detail-month-head ${isCurrent ? 'cur' : ''}" data-detail-month="${m}" aria-expanded="${open}">
         <span class="detail-caret">${open ? '▾' : '▸'}</span>
         <span class="detail-month-name">${MONTHS[m]}</span>
-        <span class="detail-month-count">${ops.length > 0 ? ops.length + (ops.length > 1 ? ' opérations' : ' opération') : ''}</span>
+        <span class="detail-month-count">${rows.length > 0 ? rows.length + (rows.length > 1 ? ' opérations' : ' opération') : ''}</span>
         <span class="detail-month-bar">${denom ? `<span class="detail-bar ${cls}" style="width:${barWidth}%"></span>` : ''}</span>
         <span class="detail-month-val">${right}</span>
       </button>`;
 
     if (open) {
-      html += `<div class="detail-ops">`;
-      if (ops.length === 0) {
-        html += `<div class="detail-empty">Aucune opération${isFuture ? ' (mois à venir)' : ''}.</div>`;
+      html += `<ul class="detail-ops">`;
+      if (rows.length === 0) {
+        html += `<li class="detail-empty">Aucune opération${isFuture ? ' (mois à venir)' : ''}.</li>`;
       } else {
-        for (const e of ops) {
-          const day = e.date.slice(8, 10);
-          html += `<div class="detail-op">
-            <span class="detail-op-day">${day}/${String(m + 1).padStart(2, '0')}</span>
-            <span class="detail-op-label" title="${e.label}">${e.label}</span>
-            <span class="detail-op-amount depense">-${fmtEUR(e.amount)}</span>
-          </div>`;
+        for (const row of rows) {
+          html += `<li class="detail-op${row.recur ? ' is-recur' : ''}">
+            <span class="detail-op-day">${String(row.day).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}</span>
+            <span class="detail-op-label" title="${row.label}">${row.recur ? '<span class="detail-op-recur">↺</span> ' : ''}${row.label}</span>
+            <span class="detail-op-amount depense">-${fmtEUR(row.amount)}</span>
+          </li>`;
         }
       }
-      if (r > 0) {
-        html += `<div class="detail-recur">↺ Récurrence prévue : ${fmtEUR(r)}</div>`;
-      }
-      html += `</div>`;
+      html += `</ul>`;
     }
     html += `</div>`;
   }

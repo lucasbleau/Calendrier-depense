@@ -42,14 +42,15 @@ module.exports = async function handler(req, res) {
         [id, uname, lc, hash, salt]
       );
 
-      // Seed des catégories par défaut pour ce nouvel utilisateur
+      // Seed des catégories par défaut pour ce nouvel utilisateur.
+      // Pas de ON CONFLICT : le compte vient d'être créé (donc aucune catégorie),
+      // et la contrainte unique (user_id, id) n'existe qu'après migrate-multiuser-2.
       const values = DEFAULT_CATEGORIES
         .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
         .join(', ');
       const params = [id, ...DEFAULT_CATEGORIES.flat()];
       await client.query(
-        `INSERT INTO categories (user_id, id, label, color) VALUES ${values}
-         ON CONFLICT (user_id, id) DO NOTHING`,
+        `INSERT INTO categories (user_id, id, label, color) VALUES ${values}`,
         params
       );
 

@@ -4,7 +4,7 @@ module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, r
   // ── GET : récupérer toutes les dépenses de l'utilisateur ─────────────
   if (req.method === 'GET') {
     const { rows } = await client.query(
-      `SELECT id, date, label, amount::float AS amount, type, category
+      `SELECT id, date, label, amount::float AS amount, type, category, recur_id AS "recurId"
        FROM expenses WHERE user_id = $1 ORDER BY date DESC, created_at DESC`,
       [uid]
     );
@@ -21,11 +21,11 @@ module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, r
     }
 
     for (const item of items) {
-      const { id, date, label, amount, type, category } = item;
+      const { id, date, label, amount, type, category, recurId } = item;
       await client.query(
-        `INSERT INTO expenses (id, date, label, amount, type, category, user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
-        [id, date, label, amount, type, category, uid]
+        `INSERT INTO expenses (id, date, label, amount, type, category, recur_id, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+        [id, date, label, amount, type, category, recurId || null, uid]
       );
     }
 

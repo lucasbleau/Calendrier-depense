@@ -329,13 +329,42 @@ function fmtDays(days) {
   return sorted.map(d => d + (d === 1 ? 'er' : '')).join(', ') + ' du mois';
 }
 
+// Jours d'occurrence d'une récurrence déjà couverts par une opération liée
+// (créée via « + », champ recurId) pour un mois donné. Chaque opération liée
+// est affectée à l'occurrence la plus proche, pour tolérer une date déplacée.
+function realizedRecurDays(task, year, month) {
+  const prefix = ymKey(year, month);
+  const dim = daysIn(year, month);
+  const occDays = task.days.filter(d => d <= dim);
+  const realized = new Set();
+  for (const e of state.expenses) {
+    if (e.recurId !== task.id || !e.date.startsWith(prefix)) continue;
+    const eDay = Number(e.date.slice(8));
+    let best = null;
+    for (const d of occDays) {
+      if (realized.has(d)) continue;
+      if (best === null || Math.abs(d - eDay) < Math.abs(best - eDay)) best = d;
+    }
+    if (best !== null) realized.add(best);
+  }
+  return realized;
+}
+
+// Nombre d'occurrences d'une récurrence restant à saisir pour un mois donné
+function unrealizedOccurrences(task, year, month) {
+  const dim = daysIn(year, month);
+  const realized = realizedRecurDays(task, year, month);
+  return task.days.filter(d => d <= dim && !realized.has(d)).length;
+}
+
 // Retourne les récurrences actives pour un jour donné, avec overrides mensuels appliqués.
 // Un jour hors du mois (ex : 31 dans un mois de 30 j) n'est pas affiché — cohérent avec
 // les totaux (recurExpected / indicateur mensuel) qui excluent ces jours.
+// Une occurrence déjà saisie comme opération liée (recurId) n'est plus rappelée.
 function getRecurringForDay(year, month, day) {
   const ym = ymKey(year, month);
   return state.recurring
-    .filter(task => task.days.includes(day))
+    .filter(task => task.days.includes(day) && !realizedRecurDays(task, year, month).has(day))
     .map(task => {
       const ov = getOverride(task.id, ym);
       return ov ? { ...task, amount: ov.amount, _overridden: true } : task;
@@ -440,6 +469,7 @@ const state = {
 
 let modalRecurDays   = [];   // jours sélectionnés dans le modal récurrence
 let editingExpenseId = null; // id de l'opération en cours d'édition (null = création)
+let pendingRecurId   = null; // id de la récurrence source quand l'opération est créée via « + »
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agrégations
@@ -693,7 +723,7 @@ function renderDayPanel() {
   panel.querySelectorAll('.btn-use-recur').forEach(btn => {
     btn.addEventListener('click', () => {
       const task = recurMap[btn.dataset.recurId];
-      if (task) openAddModal(dateStr, task);
+      if (task) openAddModal(dateStr, task, null, task.id);
     });
   });
 
@@ -978,8 +1008,9 @@ async function deleteRecurring(id) {
 // Modal : Ajouter une opération
 // ─────────────────────────────────────────────────────────────────────────────
 
-function openAddModal(dateStr, prefill = null, editId = null) {
+function openAddModal(dateStr, prefill = null, editId = null, recurId = null) {
   editingExpenseId = editId;
+  pendingRecurId   = recurId;
   $('add-date').value     = dateStr;
   $('add-label').value    = prefill?.label    || '';
   $('add-amount').value   = prefill?.amount   || '';
@@ -992,6 +1023,7 @@ function openAddModal(dateStr, prefill = null, editId = null) {
 
 function closeAddModal() {
   editingExpenseId = null;
+  pendingRecurId   = null;
   $('modal-add-title').textContent = 'Nouvelle opération';
   $('modal-add').classList.add('hidden');
 }
@@ -1027,7 +1059,7 @@ async function saveNewExpense() {
     return;
   }
 
-  const expense = { id: generateId(), date, label, amount, type, category };
+  const expense = { id: generateId(), date, label, amount, type, category, ...(pendingRecurId ? { recurId: pendingRecurId } : {}) };
 
   state.expenses.push(expense);
   closeAddModal();
@@ -1143,7 +1175,8 @@ function showToast(msg) {
 // Rendu : Vue Objectifs
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Montant attendu des récurrences pour une catégorie/mois donnés (overrides inclus)
+// Montant attendu des récurrences pour une catégorie/mois donnés (overrides inclus).
+// Toutes les occurrences comptent, même déjà saisies : sert de « prévu » (dénominateurs).
 function recurExpected(categoryId, year, month) {
   const dim = daysIn(year, month);
   const ym = ymKey(year, month);
@@ -1155,15 +1188,27 @@ function recurExpected(categoryId, year, month) {
     }, 0);
 }
 
-// Total mensuel des récurrences d'un type (overrides inclus, jours hors mois exclus)
+// Comme recurExpected, mais seulement les occurrences restant à saisir (pas encore
+// couvertes par une opération liée) : sert au « réel » pour éviter le double comptage.
+function recurRemaining(categoryId, year, month) {
+  const ym = ymKey(year, month);
+  return state.recurring
+    .filter(t => t.category === categoryId && t.type === 'depense')
+    .reduce((sum, t) => {
+      const ov = getOverride(t.id, ym);
+      return sum + (ov ? ov.amount : t.amount) * unrealizedOccurrences(t, year, month);
+    }, 0);
+}
+
+// Total mensuel des récurrences restantes d'un type (overrides inclus, jours hors
+// mois exclus, occurrences déjà saisies comme opérations liées exclues)
 function recurMonthTotal(type, year, month) {
-  const dim = daysIn(year, month);
   const ym = ymKey(year, month);
   return state.recurring
     .filter(t => t.type === type)
     .reduce((s, t) => {
       const ov = getOverride(t.id, ym);
-      return s + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= dim).length;
+      return s + (ov ? ov.amount : t.amount) * unrealizedOccurrences(t, year, month);
     }, 0);
 }
 
@@ -1252,9 +1297,10 @@ function renderGoals() {
       .filter(e => e.type === 'depense' && e.category === cat.id)
       .reduce((s, e) => s + e.amount, 0);
     const r       = recurExpected(cat.id, currentYear, m);
+    const rem     = recurRemaining(cat.id, currentYear, m);
     const goal    = getGoalForMonth(cat.id, currentYear, m);
     const denom   = goal ? Math.max(goal, r) : (r || null); // jamais sous l'objectif fixé
-    const total   = amount + (r > 0 ? r : 0);
+    const total   = amount + rem; // récurrences restantes seulement (pas de double comptage)
     const planned = goal ? Math.max(goal, r) : r;
     let cls = '';
     if (r > 0)           cls = amount === 0 ? 'ok' : goalClass(total, denom);
@@ -1454,13 +1500,14 @@ function renderGoalsDetail(container) {
       const ov  = getOverride(t.id, ym);
       const amt = ov ? ov.amount : t.amount;
       if (!(amt > 0)) continue;
+      const realized = realizedRecurDays(t, currentYear, m);
       for (const d of t.days) {
-        if (d <= dim) recurRows.push({ day: d, label: t.label, amount: amt, recur: true });
+        if (d <= dim && !realized.has(d)) recurRows.push({ day: d, label: t.label, amount: amt, recur: true });
       }
     }
 
     const rows    = [...realRows, ...recurRows].sort((a, b) => a.day - b.day || (a.recur - b.recur));
-    const r       = recurRows.reduce((s, x) => s + x.amount, 0);
+    const r       = recurExpected(cat.id, currentYear, m); // prévu complet, occurrences saisies incluses
     const shown   = rows.reduce((s, x) => s + x.amount, 0);
     const goal    = getGoalForMonth(cat.id, currentYear, m);
     const planned = goal ? Math.max(goal, r) : r;
@@ -1826,7 +1873,7 @@ function yearCategoryTotals(year) {
     }
     for (const cat of CATEGORIES) {
       if (cat.id === INCOME_CATEGORY) continue;
-      const r = recurExpected(cat.id, year, m);
+      const r = recurRemaining(cat.id, year, m);
       if (r > 0) map[cat.id] = (map[cat.id] || 0) + r;
     }
   }

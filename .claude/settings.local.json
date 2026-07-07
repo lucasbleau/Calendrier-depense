@@ -4,7 +4,19 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(node *)",
-      "Bash(git push *)"
+      "Bash(vercel *)",
+      "Bash(npm install *)",
+      "Bash(git push *)",
+      "PowerShell(git pull *)",
+      "PowerShell(git *)",
+      "PowerShell(node --check app.js; node --check api/expenses.js)",
+      "mcp__playwright__browser_navigate",
+      "PowerShell(npx -y http-server -p 8123 -c-1 .)",
+      "mcp__playwright__browser_evaluate",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(node \"C:\\\\Users\\\\bleau\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-bleau-OneDrive-Bureau-Calendrier-depense\\\\10fa931e-206e-4502-b7b9-3497e4c30701\\\\scratchpad\\\\run-migration.js\" \"$env:TEMP\\\\claude-env-pull.env\")",
+      "PowerShell(npm install *)"
     ]
   },
   "hooks": {

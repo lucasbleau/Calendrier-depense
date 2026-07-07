@@ -17,7 +17,7 @@ Visualiser, saisir et analyser les dépenses et revenus quotidiens via une inter
 - Chaque cellule jour affiche :
   - Numéro du jour
   - Total dépenses du jour (rouge) + total revenus (vert)
-  - Récurrences du jour en italique avec ↺ (non comptées dans les totaux)
+  - Récurrences du jour en italique avec ↺ (masquées si déjà saisies comme opération liée)
   - Indicateur si plusieurs opérations
 - Code couleur d'intensité : la cellule s'assombrit proportionnellement au montant dépensé (max du mois = référence)
 - Mise en évidence du jour courant
@@ -55,8 +55,9 @@ Deux modes complémentaires :
 
 - Créer/modifier/supprimer des tâches récurrentes (loyer, Netflix, salaire...)
 - Chaque tâche : libellé, montant, type, catégorie, jours du mois (ex : 1er et 15)
-- Les récurrences apparaissent dans le calendrier comme rappels (↺ montant) mais ne sont **pas** comptées dans les statistiques tant qu'elles ne sont pas saisies manuellement
+- Les récurrences apparaissent dans le calendrier comme rappels (↺ montant)
 - Depuis le panneau jour : bouton `+` pour créer une opération pré-remplie depuis la récurrence
+- **Règle anti-double-comptage** : l'opération créée via `+` garde l'id de sa récurrence (`recurId`, colonne `recur_id` en DB). Une occurrence « réalisée » (opération liée dans le mois, affectée à l'occurrence la plus proche) disparaît des rappels ↺ et des totaux « réels » (`recurRemaining`, `recurMonthTotal`, `getRecurringForDay`). Le « prévu » des Objectifs (`recurExpected`) compte en revanche **toutes** les occurrences — le dénominateur ne bouge pas quand on saisit.
 - **Affichage groupé** par catégorie, trié par montant décroissant dans chaque groupe
 - **Bandeau résumé** en haut à droite : total dépenses/mois, total revenus/mois, solde net
 
@@ -141,6 +142,7 @@ type Expense = {
   amount: number;        // valeur absolue, toujours positive
   type: 'depense' | 'revenu';
   category: string;      // id de catégorie
+  recurId?: string;      // id de la récurrence source si créée via « + » (anti double comptage)
 };
 
 type RecurringTask = {
@@ -209,13 +211,13 @@ Les **catégories** sont toujours en localStorage (même en mode déployé) car 
 
 ```sql
 users           — id (PK), username, username_lc (unique), pin_hash, pin_salt, failed_count, locked_until, created_at
-expenses        — id (PK), user_id, date, label, amount, type, category, created_at
+expenses        — id (PK), user_id, date, label, amount, type, category, recur_id (FK recurring_tasks, SET NULL), created_at
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
 goals           — (user_id, category) PK, amount, updated_at
 categories      — (user_id, id) PK, label, color, created_at
 ```
 
-> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve.
+> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`).
 
 ## Déploiement
 

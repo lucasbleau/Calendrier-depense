@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   amount      NUMERIC(10, 2)  NOT NULL,
   type        TEXT            NOT NULL,
   category    TEXT            NOT NULL,
+  recur_id    TEXT,           -- récurrence source si créée via « + » (anti double comptage)
   created_at  TIMESTAMPTZ     DEFAULT NOW(),
   CONSTRAINT fk_expenses_category
     FOREIGN KEY (user_id, category) REFERENCES categories(user_id, id)
@@ -54,6 +55,11 @@ CREATE TABLE IF NOT EXISTS recurring_tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_tasks (user_id);
+
+-- Lien opération → récurrence (déclaré après recurring_tasks pour l'ordre de création)
+ALTER TABLE expenses DROP CONSTRAINT IF EXISTS fk_expenses_recur;
+ALTER TABLE expenses ADD CONSTRAINT fk_expenses_recur
+  FOREIGN KEY (recur_id) REFERENCES recurring_tasks(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS goals (
   user_id     TEXT            NOT NULL REFERENCES users(id) ON DELETE CASCADE,

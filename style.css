@@ -1480,7 +1480,7 @@ body {
 
 .gfocus-row {
   display: grid;
-  grid-template-columns: auto minmax(72px, 1fr) minmax(70px, 2.2fr) auto;
+  grid-template-columns: 16px auto minmax(72px, 1fr) minmax(70px, 2.2fr) auto;
   align-items: center;
   gap: 0.65rem;
 }
@@ -1717,10 +1717,11 @@ body {
   }
 
   .gfocus-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas: 'dot name val' 'bar bar bar';
+    grid-template-columns: auto auto 1fr auto;
+    grid-template-areas: 'caret dot name val' 'bar bar bar bar';
     gap: 0.3rem 0.55rem;
   }
+  .gfocus-caret   { grid-area: caret; }
   .gfocus-row .goal-dot { grid-area: dot; }
   .gfocus-name    { grid-area: name; }
   .gfocus-val     { grid-area: val; }
@@ -1900,6 +1901,51 @@ body {
 }
 .cat-rate-inp:focus { outline: 2px solid rgba(var(--accent-rgb), 0.3); }
 .cat-rate-unit { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+/* Hiérarchie de catégories */
+.cat-mgmt-item.cat-child { margin-left: 1.6rem; background: var(--bg); }
+.cat-child-mark { color: var(--text-muted); font-size: 14px; margin-right: -0.2rem; flex-shrink: 0; }
+.cat-group-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-family: var(--font-mono);
+}
+.cat-parent-select {
+  flex-shrink: 0;
+  max-width: 150px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.cat-parent-select:focus { outline: 2px solid rgba(var(--accent-rgb), 0.3); }
+
+/* Caret de dépliage (Objectifs mois en avant + Stats) */
+.gfocus-caret, .cat-rank-caret {
+  width: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: default;
+  padding: 0;
+}
+.gfocus-caret[data-expand], .cat-rank-caret[data-stats-expand] { cursor: pointer; color: var(--accent); }
+.gfocus-childmark, .cat-rank-childmark { color: var(--text-muted); cursor: default; }
+.gfocus-child .gfocus-name, .cat-rank-child .cat-rank-name { color: var(--text-2); }
+.gfocus-child, .cat-rank-child { font-size: 0.95em; }
 
 .btn-delete-cat {
   font-size: 12px;
@@ -2260,7 +2306,7 @@ body {
 .cat-rank { flex: 1; min-width: 180px; list-style: none; display: flex; flex-direction: column; gap: 0.45rem; }
 .cat-rank-item {
   display: grid;
-  grid-template-columns: 8px 1fr 60px auto auto;
+  grid-template-columns: 16px 8px 1fr 60px auto auto;
   align-items: center;
   gap: 0.5rem;
 }

@@ -49,7 +49,7 @@ Deux modes complémentaires :
 - KPI mois courant : total dépenses, total revenus, solde, comparaison % vs mois précédent
 - KPI année : total dépenses, total revenus, solde annuel
 - Bar chart 12 mois (dépenses/revenus de l'année courante)
-- Donut de répartition par catégorie pour le mois courant + liste détaillée avec pourcentages
+- Donut de répartition par catégorie + liste détaillée avec pourcentages, **regroupée par catégorie de premier niveau** (un parent agrège ses sous-catégories) ; chaque parent est **dépliable** (`state.statsExpanded`) pour voir ses sous-catégories + la part « directe » du parent (`statsRankHtml`)
 
 ### Vue Récurrences
 
@@ -78,6 +78,7 @@ Deux modes complémentaires :
   - Barre de progression colorée
 - **Ligne de pied (tfoot)** : totaux annuels réel / planifié par colonne + grand total
 - Séparateur visuel entre dernière catégorie et colonne Total
+- **Regroupement par sous-catégories** : les colonnes du tableau et la liste « mois en avant » sont par catégorie de **premier niveau** (`tableCats = topLevelExpenseCats()`), agrégées via `groupFigures` (dépenses du parent + de ses enfants ; objectif = Σ enfants). Dans « mois en avant », un parent est **dépliable** (caret, `state.goalsExpanded`) pour voir le détail de ses sous-catégories. Les cartes de réglage restent par feuille, préfixées « Parent › Enfant ».
 
 ### Vue Planning
 
@@ -97,6 +98,7 @@ Deux modes complémentaires :
 - **Modifier le nom** : clic sur le texte, édition directe, confirmation au blur ou Entrée
 - **Type d'objectif** (`catMode`) : sélecteur segmenté par catégorie **Au mois** / **Au jour** (`updateCatMode`, champ `mode` persisté). « Au jour » fait apparaître la catégorie dans le Planning ; « au mois » = objectif fixe. Défaut `mois`. Pas de sélecteur sur la catégorie Revenus.
 - **Tarif de base €/j** (`savePlanBaseRate` → `plan_rates`) : champ inline affiché sur la ligne quand la catégorie est « au jour ». C'est le tarif proposé par défaut à chaque mois dans le Planning (surchargeable par mois là-bas).
+- **Sous-catégories** (hiérarchie 2 niveaux, champ `parent`, `updateCatParent`) : menu « Parent » par catégorie pour la rattacher à une catégorie de premier niveau. Affichage hiérarchique (enfants indentés ↳ sous leur parent). Une catégorie ayant des enfants devient un **groupe** (badge « groupe · Σ ») : pas de config d'objectif propre, elle agrège ses sous-catégories (+ ses dépenses directes) dans Objectifs et Stats. Un parent n'est pas supprimable tant qu'il a des enfants (helpers `childrenOf`, `isParent`, `topLevelExpenseCats`, `familyIds`).
 - **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter` (nouvelle catégorie créée en `mode: 'mois'`)
 - **Supprimer** : ✕ actif uniquement si catégorie non système, non utilisée par des opérations et non présente dans le planning (jours/tarif d'une catégorie « au jour »)
 - Modifications propagées instantanément aux dropdowns des modals
@@ -170,6 +172,7 @@ type Category = {
   label: string;
   color: string;         // couleur hex
   mode?: 'mois' | 'jour'; // objectif fixe mensuel (défaut) ou tarif €/j via Planning
+  parent?: string;        // id de la catégorie parent si sous-catégorie (2 niveaux max)
 };
 
 type Goals = Record<string, number>; // category → limite mensuelle en €
@@ -231,13 +234,13 @@ users           — id (PK), username, username_lc (unique), pin_hash, pin_salt,
 expenses        — id (PK), user_id, date, label, amount, type, category, recur_id (FK recurring_tasks, SET NULL), created_at
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
 goals           — (user_id, category) PK, amount, updated_at
-categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), created_at
+categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), parent (FK self, SET NULL), created_at
 plan_days       — (user_id, category, date) PK — jours peints (vue Planning), FK categories CASCADE
 plan_rates      — (user_id, category) PK, rate, updated_at — tarif de base €/jour, FK categories CASCADE
 plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif surchargé pour un mois, FK categories CASCADE
 ```
 
-> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`), `migrate-cat-mode.sql` (colonne `mode` sur `categories`) et `migrate-plan-overrides.sql` (table `plan_rate_overrides`).
+> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`), `migrate-cat-mode.sql` (colonne `mode` sur `categories`), `migrate-plan-overrides.sql` (table `plan_rate_overrides`) et `migrate-cat-parent.sql` (colonne `parent` + FK auto-référente sur `categories`).
 
 ## Déploiement
 

@@ -272,6 +272,35 @@ function catMode(cat) {
   return c && c.mode === 'jour' ? 'jour' : 'mois';
 }
 
+// ── Hiérarchie de catégories (2 niveaux : parent → sous-catégories) ───────────
+// Une catégorie avec des enfants est un « groupe » : pas de config d'objectif
+// propre, elle agrège ses sous-catégories (+ ses éventuelles dépenses directes).
+
+function catParent(cat) {
+  const c = typeof cat === 'string' ? getCat(cat) : cat;
+  return c && c.parent ? c.parent : null;
+}
+
+function childrenOf(parentId) {
+  return CATEGORIES.filter(c => c.parent === parentId);
+}
+
+function isParent(catId) {
+  return CATEGORIES.some(c => c.parent === catId);
+}
+
+// Catégories de dépense de premier niveau (sans parent) — l'ordre d'affichage
+// des vues récap (Objectifs, Stats).
+function topLevelExpenseCats() {
+  return CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && !c.parent);
+}
+
+// Ids d'une « famille » : la catégorie + ses sous-catégories directes.
+// Sert à agréger un parent (ses dépenses propres + celles de ses enfants).
+function familyIds(catId) {
+  return [catId, ...childrenOf(catId).map(c => c.id)];
+}
+
 // Clé année-mois "YYYY-MM" (month 0-indexé)
 function ymKey(year, month) {
   return `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -297,15 +326,25 @@ function goalClass(actual, planned) {
   return 'ok';
 }
 
+// Catégories en ordre hiérarchique (parent puis ses sous-catégories indentées).
+// cb(cat, isChild) est appelé pour chaque catégorie.
+function forEachCategoryOrdered(cb) {
+  CATEGORIES.filter(c => !c.parent).forEach(cat => {
+    cb(cat, false);
+    childrenOf(cat.id).forEach(child => cb(child, true));
+  });
+}
+
 function populateCategoryDropdowns() {
   ['add-category', 'recur-category'].forEach(selId => {
     const sel = $(selId);
     if (!sel) return;
     const current = sel.value;
     sel.innerHTML = '';
-    CATEGORIES.forEach(cat => {
+    forEachCategoryOrdered((cat, isChild) => {
       const opt = document.createElement('option');
-      opt.value = cat.id; opt.textContent = cat.label;
+      opt.value = cat.id;
+      opt.textContent = isChild ? ` ↳ ${cat.label}` : cat.label;
       sel.appendChild(opt);
     });
     if (CATEGORIES.find(c => c.id === current)) sel.value = current;
@@ -459,6 +498,8 @@ const state = {
   goalsTab:     'synthese', // 'synthese' | 'detail'
   detailCat:    null,       // catégorie sélectionnée dans la sous-page Détail
   detailMonth:  today.getMonth(), // mois déplié dans la sous-page Détail
+  goalsExpanded: new Set(), // ids des catégories parent dépliées (vue Objectifs)
+  statsExpanded: new Set(), // ids des catégories parent dépliées (vue Stats)
 };
 
 let modalRecurDays   = [];   // jours sélectionnés dans le modal récurrence
@@ -1293,16 +1334,22 @@ function renderGoals() {
 
   // Objectif par catégorie selon son mode (réglé dans l'onglet Catégories) :
   // « au jour » → tarif €/j × jours peints (Planning) ; « au mois » → montant fixe manuel.
-  const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
-  const goalCats  = tableCats;
+  // Les vues récap (mois en avant + tableau année) regroupent par catégorie de
+  // premier niveau (un parent agrège ses sous-catégories).
+  const tableCats = topLevelExpenseCats();
+  // La config d'objectif se règle sur les feuilles (catégories sans enfant).
+  const goalCats  = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && !isParent(c.id));
 
   // Ligne de reglage / info des objectifs
   let html = goalsSubTabsHtml();
   if (goalCats.length) {
-    html += `<p class="goals-settings-hint">Catégories « au mois » : objectif fixe via ✏. Catégories « au jour » : tarif €/j réglé dans l'onglet Planning. (Type modifiable dans Catégories.)</p>`;
+    html += `<p class="goals-settings-hint">Catégories « au mois » : objectif fixe via ✏. Catégories « au jour » : tarif €/j réglé dans l'onglet Planning. Les sous-catégories sont indiquées « Parent › Enfant ».</p>`;
     html += `<div class="goals-settings">`;
   }
-  for (const cat of goalCats) {
+  const orderedGoalCats = [];
+  forEachCategoryOrdered(cat => { if (goalCats.includes(cat)) orderedGoalCats.push(cat); });
+  for (const cat of orderedGoalCats) {
+    const catLabel = cat.parent ? `${getCat(cat.parent).label} › ${cat.label}` : cat.label;
     if (catMode(cat) === 'jour') {
       const rate  = effectiveRate(cat.id, currentYear, state.focusMonth);
       const nDays = planCountInMonth(cat.id, currentYear, state.focusMonth);
@@ -1311,7 +1358,7 @@ function renderGoals() {
         : `tarif à définir`;
       html += `<div class="goal-rate-card" data-cat="${cat.id}" title="Modifier dans l'onglet Planning" role="button" tabindex="0">
         <span class="goal-dot" style="background:${cat.color}"></span>
-        <span class="goal-cat-name">${cat.label}</span>
+        <span class="goal-cat-name">${catLabel}</span>
         <span class="goal-rate-label">${label}</span>
       </div>`;
     } else {
@@ -1319,7 +1366,7 @@ function renderGoals() {
       const editing = state.editingGoal === cat.id;
       html += `<div class="goal-setting-card" data-cat="${cat.id}">
         <span class="goal-dot" style="background:${cat.color}"></span>
-        <span class="goal-cat-name">${cat.label}</span>`;
+        <span class="goal-cat-name">${catLabel}</span>`;
       if (editing) {
         html += `<div class="goal-inline-edit" style="margin-left:auto">
           <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
@@ -1355,15 +1402,34 @@ function renderGoals() {
     return { amount, r, goal, denom, total, planned, cls };
   };
 
-  // ── Mois en avant : liste verticale des catégories ────────────────────────
+  // Chiffres agrégés d'une catégorie de premier niveau : ses dépenses propres
+  // + celles de ses sous-catégories (dont les objectifs sont sommés). Une feuille
+  // renvoie simplement ses propres chiffres.
+  const groupFigures = (topCat, m) => {
+    const kids = childrenOf(topCat.id);
+    if (!kids.length) return catFigures(topCat, m);
+    const self = catFigures(topCat, m); // dépenses directes du parent (sans objectif propre)
+    let amount = self.amount, r = self.r, total = self.total;
+    let planned = 0, denom = 0, hasDenom = false, goal = 0;
+    for (const k of kids) {
+      const f = catFigures(k, m);
+      amount += f.amount; r += f.r; total += f.total; planned += f.planned; goal += (f.goal || 0);
+      if (f.denom) { denom += f.denom; hasDenom = true; }
+    }
+    const d = hasDenom ? denom : null;
+    const cls = d ? goalClass(total, d) : '';
+    return { amount, r, goal, denom: d, total, planned, cls };
+  };
+
+  // ── Mois en avant : liste verticale (parents agrégés, dépliables) ──────────
   const focusM    = state.focusMonth;
   const focusRows = tableCats
-    .map(cat => ({ cat, f: catFigures(cat, focusM) }))
+    .map(cat => ({ cat, f: groupFigures(cat, focusM) }))
     .filter(({ f }) => f.total > 0 || f.goal > 0)
     .sort((a, b) => b.f.total - a.f.total || b.f.planned - a.f.planned);
 
   const focusActual  = focusRows.reduce((s, { f }) => s + f.total, 0);
-  const focusPlanned = tableCats.reduce((s, cat) => s + catFigures(cat, focusM).planned, 0);
+  const focusPlanned = tableCats.reduce((s, cat) => s + groupFigures(cat, focusM).planned, 0);
   const focusCls     = goalClass(focusActual, focusPlanned);
 
   html += `
@@ -1380,18 +1446,32 @@ function renderGoals() {
   if (focusRows.length === 0) {
     html += `<div class="goal-focus-empty">Aucune dépense ni objectif ce mois-ci.</div>`;
   }
-  for (const { cat, f } of focusRows) {
+  const focusRowHtml = (cat, f, isChild) => {
     const barWidth = f.denom ? Math.min(100, f.total / f.denom * 100).toFixed(0) : 0;
     const val = f.denom
       ? `<span class="${f.cls}">${fmtCompact(f.total)}</span><span class="gcell-lim"> / ${fmtCompact(f.denom)}</span>`
       : `<span class="${f.cls}">${f.total > 0 ? fmtCompact(f.total) : '—'}</span>`;
-    html += `
-      <div class="gfocus-row">
+    const parent = childrenOf(cat.id).length > 0;
+    const expanded = state.goalsExpanded.has(cat.id);
+    const caret = parent
+      ? `<button class="gfocus-caret" data-expand="${cat.id}" aria-label="${expanded ? 'Replier' : 'Déplier'}">${expanded ? '▾' : '▸'}</button>`
+      : (isChild ? '<span class="gfocus-caret gfocus-childmark">↳</span>' : '<span class="gfocus-caret"></span>');
+    return `
+      <div class="gfocus-row${isChild ? ' gfocus-child' : ''}">
+        ${caret}
         <span class="goal-dot" style="background:${cat.color}"></span>
         <span class="gfocus-name">${cat.label}</span>
         <div class="gfocus-bar-wrap">${f.denom ? `<div class="gfocus-bar ${f.cls}" style="width:${barWidth}%"></div>` : ''}</div>
         <span class="gfocus-val">${val}</span>
       </div>`;
+  };
+  for (const { cat, f } of focusRows) {
+    html += focusRowHtml(cat, f, false);
+    if (childrenOf(cat.id).length && state.goalsExpanded.has(cat.id)) {
+      for (const child of childrenOf(cat.id)) {
+        html += focusRowHtml(child, catFigures(child, focusM), true);
+      }
+    }
   }
   html += `</div></div>`;
 
@@ -1419,7 +1499,7 @@ function renderGoals() {
 
     let rowActual = 0, rowPlanned = 0;
     const cells = tableCats.map(cat => {
-      const f = catFigures(cat, m);
+      const f = groupFigures(cat, m);
       rowActual  += f.total;
       rowPlanned += f.planned;
       let display = '—', cls = f.cls;
@@ -1445,7 +1525,7 @@ function renderGoals() {
   const colData = tableCats.map(cat => {
     let actual = 0, planned = 0;
     for (let m2 = 0; m2 < 12; m2++) {
-      const f = catFigures(cat, m2);
+      const f = groupFigures(cat, m2);
       actual  += f.total;
       planned += f.planned;
     }
@@ -1475,6 +1555,16 @@ function renderGoals() {
 
   // Evenements
   attachGoalsSubTabs(container);
+  // Déplier/replier un parent dans la liste « mois en avant » (avant le clic mois)
+  container.querySelectorAll('.gfocus-caret[data-expand]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = btn.dataset.expand;
+      if (state.goalsExpanded.has(id)) state.goalsExpanded.delete(id);
+      else state.goalsExpanded.add(id);
+      renderGoals();
+    });
+  });
   container.querySelectorAll('[data-focus-month]').forEach(tr => {
     tr.addEventListener('click', () => {
       state.focusMonth = +tr.dataset.focusMonth;
@@ -1895,7 +1985,7 @@ function renderCategories() {
   let html = `
     <div class="cat-mgmt-header">
       <h2 class="cat-mgmt-title">Catégories</h2>
-      <p class="cat-mgmt-subtitle">Gérez les catégories. Choisissez pour chacune un objectif <strong>au mois</strong> (montant fixe) ou <strong>au jour</strong> (tarif €/jour × jours planifiés — apparaît alors dans l'onglet Planning). Suppression impossible si la catégorie est système, utilisée par des opérations ou présente dans le planning.</p>
+      <p class="cat-mgmt-subtitle">Gérez les catégories. Objectif <strong>au mois</strong> (montant fixe) ou <strong>au jour</strong> (tarif €/j × jours planifiés). Une catégorie peut être une <strong>sous-catégorie</strong> d'une autre (menu « Parent ») : le parent affiche alors la somme de ses sous-catégories. Suppression impossible si la catégorie est système, a des sous-catégories, est utilisée par des opérations ou présente dans le planning.</p>
     </div>
     <div class="cat-add-form">
       <input type="text" id="new-cat-label" placeholder="Nom de la catégorie…" class="cat-add-input" />
@@ -1907,19 +1997,21 @@ function renderCategories() {
     </div>
     <div class="cat-list-mgmt">`;
 
-  CATEGORIES.forEach(cat => {
+  const renderCatRow = (cat, isChild) => {
     const isSystem   = cat.id === DEFAULT_CATEGORY || cat.id === INCOME_CATEGORY;
     const isIncome   = cat.id === INCOME_CATEGORY;
+    const parentCat  = isParent(cat.id);
     const usedCount  = state.expenses.filter(e => e.category === cat.id).length;
     const inPlan     = catMode(cat) === 'jour' && (planDates(cat.id).length > 0 || state.plan.rates[cat.id] > 0);
-    const canDelete  = !isSystem && !inPlan && usedCount === 0;
+    const canDelete  = !isSystem && !parentCat && !inPlan && usedCount === 0;
     const delTitle   = isSystem ? 'Catégorie système'
+      : parentCat ? 'A des sous-catégories'
       : inPlan ? 'Utilisée dans le planning'
       : (usedCount > 0 ? `${usedCount} opération(s) liée(s)` : 'Supprimer');
 
-    // Type d'objectif : au mois (fixe) / au jour (Planning). Pas pour les revenus.
+    // Un parent (a des enfants) agrège : pas de config d'objectif propre.
     const mode = catMode(cat);
-    const modeToggle = isIncome ? '' : `
+    const modeToggle = (isIncome || parentCat) ? '' : `
       <div class="cat-mode-toggle" role="group" aria-label="Type d'objectif de ${cat.label}">
         <button type="button" class="cat-mode-btn ${mode === 'mois' ? 'active' : ''}" data-id="${cat.id}" data-mode="mois"
           title="Objectif mensuel fixe">Au mois</button>
@@ -1927,9 +2019,8 @@ function renderCategories() {
           title="Tarif €/jour · apparaît dans le Planning">Au jour</button>
       </div>`;
 
-    // Tarif de base €/j : seulement pour les catégories « au jour »
     const base = state.plan.rates[cat.id] || 0;
-    const rateField = (!isIncome && mode === 'jour') ? `
+    const rateField = (!isIncome && !parentCat && mode === 'jour') ? `
       <span class="cat-rate-field">
         <input type="text" class="cat-rate-inp" data-id="${cat.id}" inputmode="decimal"
           placeholder="tarif" value="${base ? String(base).replace('.', ',') : ''}"
@@ -1937,18 +2028,46 @@ function renderCategories() {
         <span class="cat-rate-unit">€/j</span>
       </span>` : '';
 
-    html += `
-      <div class="cat-mgmt-item" data-id="${cat.id}">
+    const groupBadge = parentCat
+      ? `<span class="cat-group-badge" title="Somme de ses sous-catégories">groupe · Σ</span>`
+      : '';
+
+    // Sélecteur de parent : uniquement pour les catégories qui peuvent devenir
+    // sous-catégorie (non système, sans enfant → respect des 2 niveaux).
+    let parentSelect = '';
+    if (!isSystem && !parentCat) {
+      const opts = topLevelExpenseCats()
+        .filter(c => c.id !== cat.id)
+        .map(c => `<option value="${c.id}"${cat.parent === c.id ? ' selected' : ''}>${c.label}</option>`)
+        .join('');
+      parentSelect = `
+        <select class="cat-parent-select" data-id="${cat.id}" title="Rattacher à une catégorie parent">
+          <option value="">Parent : aucun</option>
+          ${opts}
+        </select>`;
+    }
+
+    return `
+      <div class="cat-mgmt-item${isChild ? ' cat-child' : ''}" data-id="${cat.id}">
+        ${isChild ? '<span class="cat-child-mark" aria-hidden="true">↳</span>' : ''}
         <label class="cat-color-label" title="Modifier la couleur">
           <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
           <span class="cat-color-swatch" style="background:${cat.color}"></span>
         </label>
         <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
+        ${groupBadge}
         ${modeToggle}
         ${rateField}
+        ${parentSelect}
         <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
           ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
       </div>`;
+  };
+
+  // Affichage hiérarchique : catégories de premier niveau, enfants indentés dessous
+  CATEGORIES.filter(c => !c.parent).forEach(cat => {
+    html += renderCatRow(cat, false);
+    childrenOf(cat.id).forEach(child => { html += renderCatRow(child, true); });
   });
 
   html += `</div>`;
@@ -1986,10 +2105,43 @@ function renderCategories() {
     input.addEventListener('blur', e => savePlanBaseRate(e.target.dataset.id, e.target.value));
   });
 
+  // Rattachement à un parent (sous-catégorie)
+  container.querySelectorAll('.cat-parent-select').forEach(sel => {
+    sel.addEventListener('change', e => updateCatParent(e.target.dataset.id, e.target.value));
+  });
+
   // Suppression
   container.querySelectorAll('.btn-delete-cat:not([disabled])').forEach(btn => {
     btn.addEventListener('click', () => deleteCategory(btn.dataset.id));
   });
+}
+
+async function updateCatParent(id, parentId) {
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat) return;
+  parentId = parentId || null;
+  // Gardes 2 niveaux : pas de parent qui est déjà une sous-catégorie, pas de
+  // cycle, et une catégorie ayant des enfants ne peut pas devenir enfant.
+  if (parentId) {
+    if (parentId === id) return;
+    if (isParent(id)) { showToast('Cette catégorie a déjà des sous-catégories'); renderCategories(); return; }
+    const parent = CATEGORIES.find(c => c.id === parentId);
+    if (!parent || parent.parent) { showToast('Parent invalide (2 niveaux max)'); renderCategories(); return; }
+  }
+  if ((cat.parent || null) === parentId) return;
+  const prev = cat.parent;
+  cat.parent = parentId || undefined;
+  try {
+    await CatDB.upsert(cat);
+  } catch {
+    cat.parent = prev;
+    showToast('Erreur lors de la sauvegarde');
+    renderCategories();
+    return;
+  }
+  renderCategories();
+  populateCategoryDropdowns();
+  showToast(parentId ? `« ${cat.label} » rattachée à « ${getCat(parentId).label} »` : `« ${cat.label} » remise au premier niveau`);
 }
 
 async function updateCatMode(id, mode) {
@@ -2113,9 +2265,9 @@ function closeSearchModal() {
 function populateSearchCategory() {
   const sel = $('search-category');
   sel.innerHTML = '<option value="">Toutes catégories</option>';
-  CATEGORIES.forEach(c => {
+  forEachCategoryOrdered((c, isChild) => {
     const o = document.createElement('option');
-    o.value = c.id; o.textContent = c.label;
+    o.value = c.id; o.textContent = isChild ? ` ↳ ${c.label}` : c.label;
     sel.appendChild(o);
   });
 }
@@ -2280,8 +2432,21 @@ function renderStats() {
   const avgDep = totalDep / activeMonths;
   const soldeSeries = dep.map((d, m) => rev[m] - d);
 
+  // Totaux par catégorie, regroupés par catégorie de premier niveau (un parent
+  // agrège ses sous-catégories + ses dépenses directes).
   const catMap = yearCategoryTotals(year);
-  const slices = Object.entries(catMap)
+  const groupTotals = {};   // topId → total agrégé
+  const groupDirect = {};   // topId → dépenses directes du parent lui-même
+  const groupKids   = {};   // topId → [{ id, value }]
+  for (const [id, value] of Object.entries(catMap)) {
+    if (!value) continue;
+    const cat = getCat(id);
+    const topId = cat.parent || id;
+    groupTotals[topId] = (groupTotals[topId] || 0) + value;
+    if (cat.parent) (groupKids[topId] ??= []).push({ id, value });
+    else            groupDirect[topId] = value;
+  }
+  const slices = Object.entries(groupTotals)
     .map(([id, value]) => ({ id, value, label: getCat(id).label, color: getCat(id).color }))
     .sort((a, b) => b.value - a.value);
   const maxCat = slices.length ? slices[0].value : 0;
@@ -2331,14 +2496,7 @@ function renderStats() {
         <div class="donut-layout">
           ${svgDonut(slices, totalDep)}
           <ul class="cat-rank">
-            ${slices.length ? slices.slice(0, 8).map(s => `
-              <li class="cat-rank-item">
-                <span class="op-dot" style="background:${s.color}"></span>
-                <span class="cat-rank-name" title="${s.label}">${s.label}</span>
-                <span class="cat-rank-bar"><span style="width:${maxCat ? Math.round(s.value / maxCat * 100) : 0}%;background:${s.color}"></span></span>
-                <span class="cat-rank-val">${fmtEUR(s.value)}</span>
-                <span class="cat-rank-pct">${totalDep ? Math.round(s.value / totalDep * 100) : 0}%</span>
-              </li>`).join('') : '<li class="cat-rank-empty">Aucune dépense</li>'}
+            ${slices.length ? statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) : '<li class="cat-rank-empty">Aucune dépense</li>'}
           </ul>
         </div>
       </div>
@@ -2353,10 +2511,54 @@ function renderStats() {
   wireStatsNav();
 }
 
+// Liste de rang des catégories (Stats) : parents agrégés, dépliables vers leurs
+// sous-catégories (+ éventuelle part « directe » du parent).
+function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) {
+  const rankRow = (id, label, color, value, isChild, parentExpandable) => {
+    const expanded = state.statsExpanded.has(id);
+    const caret = parentExpandable
+      ? `<button class="cat-rank-caret" data-stats-expand="${id}" aria-label="${expanded ? 'Replier' : 'Déplier'}">${expanded ? '▾' : '▸'}</button>`
+      : `<span class="cat-rank-caret${isChild ? ' cat-rank-childmark' : ''}">${isChild ? '↳' : ''}</span>`;
+    return `<li class="cat-rank-item${isChild ? ' cat-rank-child' : ''}">
+      ${caret}
+      <span class="op-dot" style="background:${color}"></span>
+      <span class="cat-rank-name" title="${label}">${label}</span>
+      <span class="cat-rank-bar"><span style="width:${maxCat ? Math.round(value / maxCat * 100) : 0}%;background:${color}"></span></span>
+      <span class="cat-rank-val">${fmtEUR(value)}</span>
+      <span class="cat-rank-pct">${totalDep ? Math.round(value / totalDep * 100) : 0}%</span>
+    </li>`;
+  };
+
+  let out = '';
+  for (const s of slices.slice(0, 8)) {
+    const kids = groupKids[s.id];
+    const hasKids = kids && kids.length > 0;
+    out += rankRow(s.id, s.label, s.color, s.value, false, hasKids);
+    if (hasKids && state.statsExpanded.has(s.id)) {
+      const sorted = [...kids].sort((a, b) => b.value - a.value);
+      for (const k of sorted) {
+        const c = getCat(k.id);
+        out += rankRow(k.id, c.label, c.color, k.value, true, false);
+      }
+      const direct = groupDirect[s.id] || 0;
+      if (direct > 0) out += rankRow(s.id + '__direct', `${s.label} (direct)`, s.color, direct, true, false);
+    }
+  }
+  return out;
+}
+
 function wireStatsNav() {
   const prev = $('stats-prev-year'), next = $('stats-next-year');
   if (prev) prev.addEventListener('click', () => { state.currentYear--; renderStats(); });
   if (next) next.addEventListener('click', () => { state.currentYear++; renderStats(); });
+  document.querySelectorAll('.cat-rank-caret[data-stats-expand]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.statsExpand;
+      if (state.statsExpanded.has(id)) state.statsExpanded.delete(id);
+      else state.statsExpanded.add(id);
+      renderStats();
+    });
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

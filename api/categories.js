@@ -4,7 +4,7 @@ module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res
   // ── GET : catégories de l'utilisateur ────────────────────────────────────
   if (req.method === 'GET') {
     const { rows } = await client.query(
-      'SELECT id, label, color, mode FROM categories WHERE user_id = $1 ORDER BY created_at ASC',
+      'SELECT id, label, color, mode, parent FROM categories WHERE user_id = $1 ORDER BY created_at ASC',
       [uid]
     );
     return res.json(rows);
@@ -17,11 +17,13 @@ module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res
       return res.status(400).json({ error: 'Champs id, label et color requis' });
     }
     const mode = req.body.mode === 'jour' ? 'jour' : 'mois';
+    const parent = (typeof req.body.parent === 'string' && req.body.parent && req.body.parent !== id)
+      ? req.body.parent : null;
     await client.query(
-      `INSERT INTO categories (user_id, id, label, color, mode)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, id) DO UPDATE SET label = $3, color = $4, mode = $5`,
-      [uid, id, label, color, mode]
+      `INSERT INTO categories (user_id, id, label, color, mode, parent)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, id) DO UPDATE SET label = $3, color = $4, mode = $5, parent = $6`,
+      [uid, id, label, color, mode, parent]
     );
     return res.json({ ok: true });
   }

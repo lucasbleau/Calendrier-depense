@@ -20,8 +20,12 @@ CREATE TABLE IF NOT EXISTS categories (
   label      TEXT        NOT NULL,
   color      TEXT        NOT NULL DEFAULT '#9A9888',
   mode       TEXT        NOT NULL DEFAULT 'mois', -- 'mois' (fixe) | 'jour' (tarif €/j, vue Planning)
+  parent     TEXT,                                -- sous-catégorie : id de la catégorie parent (2 niveaux)
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (user_id, id)
+  PRIMARY KEY (user_id, id),
+  CONSTRAINT fk_categories_parent
+    FOREIGN KEY (user_id, parent) REFERENCES categories(user_id, id)
+    ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS expenses (

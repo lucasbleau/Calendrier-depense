@@ -2054,6 +2054,8 @@ function renderCategories() {
       <div class="cat-mgmt-row${isChild ? ' cat-child' : ''}" data-id="${cat.id}">
         <div class="cat-mgmt-item">
           <div class="cat-cell-lead">
+            <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
+              ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
             ${isChild ? '<span class="cat-child-mark" aria-hidden="true">↳</span>' : ''}
             <label class="cat-color-label" title="Modifier la couleur">
               <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
@@ -2065,8 +2067,6 @@ function renderCategories() {
           <div class="cat-cell-mode">${groupBadge}${modeToggle}</div>
         </div>
         ${rateBox}
-        <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
-          ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
       </div>`;
   };
 
@@ -2240,7 +2240,49 @@ async function updateCatLabel(id, label) {
   renderCategories();
 }
 
+// Modal de confirmation générique → Promise<boolean>
+function confirmModal({ title = 'Confirmer', message, okLabel = 'Confirmer', danger = false } = {}) {
+  return new Promise(resolve => {
+    const modal  = $('modal-confirm');
+    const okBtn  = $('btn-confirm-ok');
+    const cancel = $('btn-confirm-cancel');
+    const close  = $('modal-confirm-close');
+    $('modal-confirm-title').textContent   = title;
+    $('modal-confirm-message').textContent = message;
+    okBtn.textContent = okLabel;
+    okBtn.classList.toggle('btn-danger', danger);
+    okBtn.classList.toggle('btn-primary', !danger);
+    modal.classList.remove('hidden');
+    okBtn.focus();
+
+    const onKey = e => { if (e.key === 'Escape') done(false); if (e.key === 'Enter') done(true); };
+    function done(result) {
+      modal.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      close.removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    }
+    const onOk = () => done(true);
+    const onCancel = () => done(false);
+    okBtn.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    close.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey, true);
+  });
+}
+
 async function deleteCategory(id) {
+  const cat = getCat(id);
+  const used = state.expenses.filter(e => e.category === id).length;
+  const ok = await confirmModal({
+    title: 'Supprimer la catégorie',
+    message: `Supprimer la catégorie « ${cat.label} » ?` + (used ? ` ${used} opération(s) y sont liées.` : '') + ' Cette action est définitive.',
+    okLabel: 'Supprimer',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await CatDB.remove(id);
   } catch (err) {

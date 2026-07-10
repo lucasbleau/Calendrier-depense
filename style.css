@@ -91,6 +91,23 @@ body {
 .btn-primary:hover  { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
+.btn-danger {
+  padding: 0.45rem 1rem;
+  background: var(--depense);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+.btn-danger:hover { filter: brightness(0.92); }
+
+.modal-confirm-message { font-size: 14px; color: var(--text-2); line-height: 1.5; }
+
 .btn-secondary {
   padding: 0.45rem 1rem;
   background: transparent;
@@ -1867,7 +1884,8 @@ body {
 .cat-rate-box:focus-within { border-color: var(--accent); }
 .cat-rate-box--empty { border: none; background: transparent; }
 
-.cat-mgmt-row > .btn-delete-cat { align-self: center; flex-shrink: 0; }
+/* ✕ suppression : à gauche dans la case, avant la couleur */
+.cat-cell-lead .btn-delete-cat { flex-shrink: 0; margin-right: 0.1rem; }
 
 @media (max-width: 640px) {
   .cat-mgmt-item {

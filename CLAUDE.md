@@ -73,6 +73,7 @@ Deux modes complémentaires :
 - **Ligne de pied (tfoot)** : totaux annuels réel / planifié par colonne + grand total
 - Séparateur visuel entre dernière catégorie et colonne Total
 - **Regroupement par sous-catégories** : les colonnes du tableau et la liste « mois en avant » sont par catégorie de **premier niveau** (`tableCats = topLevelExpenseCats()`), agrégées via `groupFigures` (somme d'elle-même + de ses sous-catégories, chacune avec ses dépenses et son objectif effectif). Dans « mois en avant », un parent est **dépliable** (caret, `state.goalsExpanded`) pour voir le détail de ses sous-catégories. Les cartes de réglage restent par feuille, préfixées « Parent › Enfant ».
+- **Sous-page Détail** (`renderGoalsDetail`) : puces ordonnées hiérarchiquement (enfants ↳ indentés). Sélectionner un **parent** agrège toute sa famille (`familyIds`) — total et opérations mois par mois, chaque ligne annotée de sa sous-catégorie (badge « total sous-catégories »). Sélectionner une feuille n'affiche qu'elle.
 
 ### Vue Planning
 

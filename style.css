@@ -1650,6 +1650,27 @@ body {
 }
 .detail-head-title .goal-dot { width: 10px; height: 10px; }
 .detail-head-year { color: var(--accent); font-weight: 600; }
+.detail-head-group {
+  font-family: var(--font-body);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--accent-faint);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  vertical-align: middle;
+}
+.detail-chip-child { font-size: 12px; opacity: 0.92; }
+.detail-op-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.detail-op-sub .goal-dot { width: 6px; height: 6px; }
 .detail-head-sub { font-family: var(--font-mono); font-size: 0.9rem; }
 .detail-head-sep { color: var(--text-3); }
 .detail-head-sub .ok   { color: var(--revenu); }
@@ -1715,7 +1736,8 @@ body {
 }
 .detail-op:last-child { border-bottom: none; }
 .detail-op-day { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
-.detail-op-label { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-op-label { font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 0.3rem; min-width: 0; overflow: hidden; }
+.detail-op-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-op-amount { font-family: var(--font-mono); font-size: 12.5px; text-align: right; white-space: nowrap; }
 .detail-op-amount.depense { color: var(--depense); }
 .detail-op-recur { color: var(--accent); font-size: 11px; }

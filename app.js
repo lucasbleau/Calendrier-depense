@@ -1611,18 +1611,21 @@ function renderGoalsDetail(container) {
   if (!tableCats.some(c => c.id === state.detailCat)) {
     state.detailCat = tableCats[0]?.id ?? null;
   }
-  const cat = getCat(state.detailCat);
+  const cat     = getCat(state.detailCat);
+  const ids     = familyIds(cat.id);   // parent → lui-même + ses sous-catégories
+  const isGroup = ids.length > 1;
 
   let html = goalsSubTabsHtml();
 
-  // Sélecteur de catégorie (puces)
+  // Sélecteur de catégorie (puces), ordonné hiérarchiquement (enfants indentés)
   html += `<div class="detail-chips">`;
-  for (const c of tableCats) {
+  forEachCategoryOrdered((c, isChild) => {
+    if (c.id === INCOME_CATEGORY) return;
     const on = c.id === state.detailCat;
-    html += `<button class="detail-chip ${on ? 'active' : ''}" data-detail-cat="${c.id}">
-      <span class="goal-dot" style="background:${c.color}"></span>${c.label}
+    html += `<button class="detail-chip ${on ? 'active' : ''}${isChild ? ' detail-chip-child' : ''}" data-detail-cat="${c.id}">
+      <span class="goal-dot" style="background:${c.color}"></span>${isChild ? '↳ ' : ''}${c.label}
     </button>`;
-  }
+  });
   html += `</div>`;
 
   // Bilan annuel de la catégorie. Les récurrences attendues sont affichées
@@ -1634,26 +1637,27 @@ function renderGoalsDetail(container) {
     const dim = daysIn(currentYear, m);
     const ym  = ymKey(currentYear, m);
 
+    // Un parent agrège ses sous-catégories : on inclut les opérations de toute
+    // la famille (chaque ligne garde sa sous-catégorie d'origine).
     const realRows = getMonthData(currentYear, m)
-      .filter(e => e.type === 'depense' && e.category === cat.id)
-      .map(e => ({ day: +e.date.slice(8, 10), label: e.label, amount: e.amount, recur: false }));
+      .filter(e => e.type === 'depense' && ids.includes(e.category))
+      .map(e => ({ day: +e.date.slice(8, 10), label: e.label, amount: e.amount, recur: false, catId: e.category }));
 
     const recurRows = [];
     for (const t of state.recurring) {
-      if (t.category !== cat.id || t.type !== 'depense') continue;
+      if (t.type !== 'depense' || !ids.includes(t.category)) continue;
       const ov  = getOverride(t.id, ym);
       const amt = ov ? ov.amount : t.amount;
       if (!(amt > 0)) continue;
       const realized = realizedRecurDays(t, currentYear, m);
       for (const d of t.days) {
-        if (d <= dim && !realized.has(d)) recurRows.push({ day: d, label: t.label, amount: amt, recur: true });
+        if (d <= dim && !realized.has(d)) recurRows.push({ day: d, label: t.label, amount: amt, recur: true, catId: t.category });
       }
     }
 
     const rows    = [...realRows, ...recurRows].sort((a, b) => a.day - b.day || (a.recur - b.recur));
-    const r       = recurExpected(cat.id, currentYear, m); // prévu complet, occurrences saisies incluses
     const shown   = rows.reduce((s, x) => s + x.amount, 0);
-    const goal    = getGoalForMonth(cat.id, currentYear, m);
+    const goal    = ids.reduce((s, id) => s + (getGoalForMonth(id, currentYear, m) || 0), 0) || null;
     const planned = goal || 0;
     const denom   = goal || null;
     yearShown   += shown;
@@ -1663,7 +1667,7 @@ function renderGoalsDetail(container) {
   const yearCls = goalClass(yearShown, yearPlanned);
 
   html += `<div class="detail-head">
-    <div class="detail-head-title"><span class="goal-dot" style="background:${cat.color}"></span>${cat.label} <span class="detail-head-year">${currentYear}</span></div>
+    <div class="detail-head-title"><span class="goal-dot" style="background:${cat.color}"></span>${cat.label}${isGroup ? ' <span class="detail-head-group">total sous-catégories</span>' : ''} <span class="detail-head-year">${currentYear}</span></div>
     <div class="detail-head-sub">
       <span class="${yearCls}">${yearShown > 0 ? fmtEUR(yearShown) : '—'}</span>
       <span class="detail-head-sep">/ ${yearPlanned > 0 ? fmtEUR(yearPlanned) : '—'} prévu</span>
@@ -1698,9 +1702,10 @@ function renderGoalsDetail(container) {
         html += `<li class="detail-empty">Aucune opération${isFuture ? ' (mois à venir)' : ''}.</li>`;
       } else {
         for (const row of rows) {
+          const sub = isGroup ? (() => { const sc = getCat(row.catId); return `<span class="detail-op-sub"><span class="goal-dot" style="background:${sc.color}"></span>${sc.label}</span>`; })() : '';
           html += `<li class="detail-op${row.recur ? ' is-recur' : ''}">
             <span class="detail-op-day">${String(row.day).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}</span>
-            <span class="detail-op-label" title="${row.label}">${row.recur ? '<span class="detail-op-recur">↺</span> ' : ''}${row.label}</span>
+            <span class="detail-op-label">${row.recur ? '<span class="detail-op-recur">↺</span> ' : ''}<span class="detail-op-text" title="${row.label}">${row.label}</span>${sub}</span>
             <span class="detail-op-amount depense">-${fmtEUR(row.amount)}</span>
           </li>`;
         }

@@ -1734,7 +1734,7 @@ body {
 
 #view-categories {
   padding: 1.5rem 1.25rem;
-  max-width: 640px;
+  max-width: 780px;
   margin: 0 auto;
 }
 
@@ -1819,7 +1819,8 @@ body {
 }
 
 .cat-mgmt-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px 122px 86px auto;
   align-items: center;
   gap: 0.6rem;
   background: var(--surface);
@@ -1830,10 +1831,24 @@ body {
 }
 .cat-mgmt-item:hover { border-color: var(--border); }
 
-@media (max-width: 560px) {
-  .cat-mgmt-item { flex-wrap: wrap; row-gap: 0.4rem; }
-  .cat-label-edit { flex: 1 1 55%; }
-  .cat-mode-btn { padding: 0.2rem 0.5rem; }
+/* Cellules de la grille (nom | parent | mode | tarif | ✕) */
+.cat-cell-lead { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.cat-cell { display: flex; align-items: center; min-width: 0; }
+.cat-cell-mode, .cat-cell-rate { justify-content: flex-end; }
+.cat-cell-parent .cat-parent-select { width: 100%; max-width: 100%; }
+
+@media (max-width: 640px) {
+  .cat-mgmt-item {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'lead del' 'parent parent' 'mode rate';
+    row-gap: 0.45rem;
+  }
+  .cat-cell-lead   { grid-area: lead; }
+  .cat-mgmt-item > .btn-delete-cat { grid-area: del; align-self: start; }
+  .cat-cell-parent { grid-area: parent; }
+  .cat-cell-mode   { grid-area: mode; justify-content: flex-start; }
+  .cat-cell-rate   { grid-area: rate; }
+  .cat-mode-btn    { padding: 0.2rem 0.5rem; }
 }
 
 .cat-label-edit {
@@ -1902,9 +1917,10 @@ body {
 .cat-rate-inp:focus { outline: 2px solid rgba(var(--accent-rgb), 0.3); }
 .cat-rate-unit { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 
-/* Hiérarchie de catégories */
-.cat-mgmt-item.cat-child { margin-left: 1.6rem; background: var(--bg); }
-.cat-child-mark { color: var(--text-muted); font-size: 14px; margin-right: -0.2rem; flex-shrink: 0; }
+/* Hiérarchie de catégories : enfant indenté dans sa cellule nom, colonnes alignées */
+.cat-mgmt-item.cat-child { background: var(--bg); }
+.cat-mgmt-item.cat-child .cat-cell-lead { padding-left: 1.3rem; }
+.cat-child-mark { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
 .cat-group-badge {
   flex-shrink: 0;
   font-size: 11px;

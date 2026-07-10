@@ -2047,18 +2047,21 @@ function renderCategories() {
         </select>`;
     }
 
+    // Grille à colonnes fixes : chaque cellule est toujours rendue (vide si
+    // inutile) pour que tout s'aligne verticalement d'une ligne à l'autre.
     return `
       <div class="cat-mgmt-item${isChild ? ' cat-child' : ''}" data-id="${cat.id}">
-        ${isChild ? '<span class="cat-child-mark" aria-hidden="true">↳</span>' : ''}
-        <label class="cat-color-label" title="Modifier la couleur">
-          <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
-          <span class="cat-color-swatch" style="background:${cat.color}"></span>
-        </label>
-        <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
-        ${groupBadge}
-        ${modeToggle}
-        ${rateField}
-        ${parentSelect}
+        <div class="cat-cell-lead">
+          ${isChild ? '<span class="cat-child-mark" aria-hidden="true">↳</span>' : ''}
+          <label class="cat-color-label" title="Modifier la couleur">
+            <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
+            <span class="cat-color-swatch" style="background:${cat.color}"></span>
+          </label>
+          <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
+        </div>
+        <div class="cat-cell cat-cell-parent">${parentSelect}</div>
+        <div class="cat-cell cat-cell-mode">${groupBadge}${modeToggle}</div>
+        <div class="cat-cell cat-cell-rate">${rateField}</div>
         <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
           ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
       </div>`;

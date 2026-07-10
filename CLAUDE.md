@@ -85,7 +85,7 @@ Deux modes complémentaires :
 - **Résumé latéral** du mois : `n j × tarif = montant` par catégorie peinte + total planifié.
 - Navigation mois partagée avec le calendrier principal (`state.currentMonth/Year`, flèches clavier actives).
 - Un glisser = un batch : les jours ajoutés/retirés sont envoyés en une seule requête `POST /api/plan` au relâchement (rollback local + toast si échec).
-- **Graine propriétaire** (`seedOwnerPlan`) : au premier chargement avec un planning entièrement vide, le compte owner est initialisé depuis `LEGACY_PLAN_SEED` (ex `CITY_DAYS`×`DAILY_RATES` 2026) — jours Besançon posés en début de mois, jours Dijon en fin (placement arbitraire, seuls les totaux mensuels comptent).
+- Aucun seed automatique : chaque compte part d'un planning vide et le remplit à la main (le seed initial « budgets ville » de l'owner a été retiré).
 
 ### Vue Catégories
 
@@ -104,7 +104,7 @@ Deux modes complémentaires :
 - **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), username en `USER_KEY`. Envoyé via `x-auth-token`.
 - **Isolation des données (critique)** : `withDb` (`api/_lib.js`) extrait l'`user_id` du token vérifié et le passe à chaque route. **Toutes** les requêtes sont filtrées par `user_id` (WHERE + INSERT + `UPDATE/DELETE … WHERE id=$ AND user_id=$`). L'`user_id` ne vient jamais du body/query. Un utilisateur ne peut ni lire ni modifier les données d'un autre, même en forgeant un id.
 - **Catégories par compte** : isolées par `user_id` (PK composite `(user_id, id)`). À l'inscription, seules **2 catégories structurelles** sont seedées (`Revenus`, `Autre`) — les nouveaux comptes partent neutres et créent les leurs.
-- **Compte propriétaire** (`OWNER_USERNAME` dans `app.js`, = `lucas_bleau`) : ne sert plus qu'à la **graine du Planning** (`seedOwnerPlan` initialise son planning depuis `LEGACY_PLAN_SEED` s'il est vide). Les plafonds dynamiques (Planning) sont désormais disponibles pour **tous les comptes**. En local (dev) : toujours owner.
+- **Aucun compte privilégié** : tous les comptes sont équivalents (plafonds dynamiques via Planning, objectifs manuels, catégories). Il n'y a plus de compte « propriétaire » ni de config personnelle hardcodée.
 - **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:username`) pour éviter toute fuite inter-comptes sur un appareil partagé.
 - **Déconnexion** : bouton header → vide `sessionStorage` et recharge.
 - En local (`file://` ou `localhost`) : aucune auth, mono-utilisateur localStorage, overlay jamais affiché.
@@ -179,7 +179,6 @@ type Plan = {
 | Constante | Rôle |
 |---|---|
 | `let CATEGORIES` | Liste courante des catégories (initialisée depuis défauts, surchargeable via CatDB) |
-| `LEGACY_PLAN_SEED` | Ancienne config « budgets ville » (ex `CITY_DAYS`×`DAILY_RATES`) — sert uniquement à initialiser le Planning du compte owner (`seedOwnerPlan`) |
 | `CATEGORY_KEYWORDS` | Mots-clés pour l'auto-détection de catégorie à l'import CSV |
 
 ### Clés localStorage
@@ -302,7 +301,7 @@ Browser → /api/plan         → Postgres (plan_days + plan_rates WHERE user_id
 - Format monétaire et dates toujours via les helpers — ne jamais réimplémenter inline
 - Pas de commentaires sauf si le WHY est non-évident
 - Dual-mode storage : toujours vérifier `IS_DEPLOYED` avant tout appel réseau ou accès localStorage
-- **Catégories** : toujours lire depuis `CATEGORIES` (variable `let`, peut être surchargée par CatDB), jamais hardcoder un id de catégorie sauf `DEFAULT_CATEGORY`, `INCOME_CATEGORY` et `LEGACY_PLAN_SEED`
+- **Catégories** : toujours lire depuis `CATEGORIES` (variable `let`, peut être surchargée par CatDB), jamais hardcoder un id de catégorie sauf `DEFAULT_CATEGORY` et `INCOME_CATEGORY`
 
 ## Hors scope
 

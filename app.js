@@ -39,18 +39,6 @@ const INCOME_CATEGORY  = 'revenus';
 // Seuil d'alerte des objectifs (réel / plafond)
 const GOAL_WARN_RATIO = 0.8;
 
-// Ancienne config « budgets ville » du propriétaire (ex CITY_DAYS × DAILY_RATES).
-// Ne sert plus qu'à initialiser son Planning s'il est entièrement vide
-// (cf. seedOwnerPlan) : jours Besançon posés en début de mois, jours Dijon en fin.
-const LEGACY_PLAN_SEED = {
-  rates: { courses: 8.5, essence: 4, dijon_loisirs: 23, dijon_appart: 22.8 },
-  city:  { courses: 'besac', essence: 'besac', dijon_loisirs: 'dijon', dijon_appart: 'dijon' },
-  // [jours Besançon, jours Dijon] par mois — indice 0 = janvier
-  cityDays: {
-    2026: [[26,5],[23,5],[26,5],[25,5],[23,8],[25,5],[21,10],[26,5],[27,3],[24,7],[25,5],[28,3]],
-  },
-};
-
 const CATEGORY_KEYWORDS = {
   courses:     ['carrefour','leclerc','auchan','lidl','intermarché','intermarch','monoprix','casino','franprix','picard','biocbon','bio c bon','naturalia','grand frais','supermarché','supermarche','superette','épicerie','epicerie'],
   essence:     ['total ','total energie','bp ','shell','esso','station service','station-service','station','vinci autoroute','autoroute'],
@@ -73,15 +61,6 @@ const IS_DEPLOYED = (
   window.location.hostname !== 'localhost' &&
   window.location.hostname !== '127.0.0.1'
 );
-
-// Compte « propriétaire » : seul son Planning est initialisé depuis l'ancienne
-// config « budgets ville » (LEGACY_PLAN_SEED, cf. seedOwnerPlan). Les autres
-// comptes partent avec un planning vide qu'ils remplissent eux-mêmes.
-// En local (mono-utilisateur dev) : toujours considéré owner.
-const OWNER_USERNAME = 'lucas_bleau';
-function isOwner() {
-  return !IS_DEPLOYED || sessionStorage.getItem(USER_KEY) === OWNER_USERNAME;
-}
 
 // Raccourci DOM
 const $ = (id) => document.getElementById(id);
@@ -212,7 +191,6 @@ const PlanDB = {
   load:     ()               => planStore.load(),
   saveDays: (add, remove)    => planStore.send('POST', { body: { add, remove } }),
   saveRate: (category, rate) => planStore.send('POST', { body: { rates: { [category]: rate } } }),
-  seed:     (add, rates)     => planStore.send('POST', { body: { add, rates } }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1654,40 +1632,6 @@ async function saveGoal(category) {
 let planActiveCat = null;  // catégorie en cours de peinture
 let planPaint     = null;  // glisser en cours : { on, touched, add, remove }
 
-// Initialise le Planning du propriétaire depuis l'ancienne config « budgets
-// ville » — uniquement si son planning est entièrement vide (premier passage).
-// Le placement exact des jours est arbitraire (Besançon en début de mois,
-// Dijon en fin) : seuls les totaux mensuels comptent pour les objectifs,
-// l'utilisateur affine ensuite dans le calendrier.
-async function seedOwnerPlan() {
-  if (!isOwner()) return;
-  if (Object.keys(state.plan.days).length || Object.keys(state.plan.rates).length) return;
-
-  const add = [];
-  for (const [yearStr, months] of Object.entries(LEGACY_PLAN_SEED.cityDays)) {
-    const year = +yearStr;
-    months.forEach(([besac, dijon], m) => {
-      const dim = daysIn(year, m);
-      for (const [catId, city] of Object.entries(LEGACY_PLAN_SEED.city)) {
-        const n = Math.min(dim, city === 'besac' ? besac : dijon);
-        for (let i = 0; i < n; i++) {
-          const day = city === 'besac' ? i + 1 : dim - i;
-          add.push({ category: catId, date: dateKey(year, m, day) });
-        }
-      }
-    });
-  }
-
-  for (const { category, date } of add) setPlanDayLocal(category, date, true);
-  state.plan.rates = { ...LEGACY_PLAN_SEED.rates };
-  try {
-    await PlanDB.seed(add, LEGACY_PLAN_SEED.rates);
-    showToast('Planning initialisé depuis vos budgets ville');
-  } catch {
-    state.plan = { days: {}, rates: {} };
-  }
-}
-
 function renderPlanning() {
   const container = $('planning-body');
   const { currentYear, currentMonth } = state;
@@ -2504,7 +2448,6 @@ async function loadAndRender() {
   try {
     [state.expenses, state.recurring, state.goals, state.plan] =
       await Promise.all([DB.load(), RDB.load(), GoalDB.load(), PlanDB.load()]);
-    await seedOwnerPlan();
     // Cache local du dernier chargement réussi → alimente le fallback hors ligne ci-dessous
     if (IS_DEPLOYED) {
       localStorage.setItem(userCacheKey(STORAGE_KEY),   JSON.stringify(state.expenses));

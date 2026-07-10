@@ -10,19 +10,22 @@ function validEntries(list) {
 
 module.exports = withDb('plan', 'GET,POST,OPTIONS', async (req, res, client, uid) => {
   if (req.method === 'GET') {
-    const [daysQ, ratesQ] = await Promise.all([
+    const [daysQ, ratesQ, ovQ] = await Promise.all([
       client.query('SELECT category, date FROM plan_days WHERE user_id = $1', [uid]),
       client.query('SELECT category, rate::float AS rate FROM plan_rates WHERE user_id = $1', [uid]),
+      client.query('SELECT category, ym, rate::float AS rate FROM plan_rate_overrides WHERE user_id = $1', [uid]),
     ]);
     const days = {};
     for (const r of daysQ.rows) (days[r.category] ??= []).push(r.date);
     const rates = {};
     for (const r of ratesQ.rows) rates[r.category] = r.rate;
-    return res.json({ days, rates });
+    const overrides = {};
+    for (const r of ovQ.rows) (overrides[r.category] ??= {})[r.ym] = r.rate;
+    return res.json({ days, rates, overrides });
   }
 
   if (req.method === 'POST') {
-    const { add = [], remove = [], rates } = req.body || {};
+    const { add = [], remove = [], rates, overrides } = req.body || {};
     if (!validEntries(add) || !validEntries(remove)) {
       return res.status(400).json({ error: 'entrées invalides' });
     }
@@ -65,6 +68,30 @@ module.exports = withDb('plan', 'GET,POST,OPTIONS', async (req, res, client, uid
              VALUES ($1, $2, $3)
              ON CONFLICT (user_id, category) DO UPDATE SET rate = $3, updated_at = NOW()`,
             [uid, category, rate]
+          );
+        } else {
+          return res.status(400).json({ error: 'rate invalide' });
+        }
+      }
+    }
+
+    if (Array.isArray(overrides)) {
+      const YM_RE = /^\d{4}-\d{2}$/;
+      for (const o of overrides) {
+        if (!o || typeof o.category !== 'string' || !o.category || !YM_RE.test(o.ym)) {
+          return res.status(400).json({ error: 'override invalide' });
+        }
+        if (o.rate === null || o.rate === 0) {
+          await client.query(
+            'DELETE FROM plan_rate_overrides WHERE user_id = $1 AND category = $2 AND ym = $3',
+            [uid, o.category, o.ym]
+          );
+        } else if (Number.isFinite(o.rate) && o.rate > 0) {
+          await client.query(
+            `INSERT INTO plan_rate_overrides (user_id, category, ym, rate)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, category, ym) DO UPDATE SET rate = $4, updated_at = NOW()`,
+            [uid, o.category, o.ym, o.rate]
           );
         } else {
           return res.status(400).json({ error: 'rate invalide' });

@@ -1881,6 +1881,26 @@ body {
   box-shadow: 0 1px 2px rgba(31, 35, 41, 0.08);
 }
 
+.cat-rate-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.cat-rate-inp {
+  width: 62px;
+  padding: 0.25rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+}
+.cat-rate-inp:focus { outline: 2px solid rgba(var(--accent-rgb), 0.3); }
+.cat-rate-unit { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
 .btn-delete-cat {
   font-size: 12px;
   color: var(--text-3);
@@ -2405,6 +2425,20 @@ body {
 .plan-rate-unit { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
 
 .plan-rate-hint { color: var(--text-muted); font-size: 12px; font-style: italic; }
+
+.plan-rate-reset {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--accent);
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.plan-rate-reset:hover { border-color: var(--accent); background: var(--accent-faint); }
+.plan-rate-reset.hidden { display: none; }
 
 /* Disposition grille + résumé */
 .plan-layout {

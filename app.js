@@ -177,9 +177,15 @@ const CatDB = {
   },
 };
 
-// Planning : jours peints par catégorie + tarifs €/jour
+// Planning : jours peints par catégorie + tarif de base €/j + surcharges par mois
+// rates     : { [category]: baseRate }          — tarif de base (réglé en Catégories)
+// overrides : { [category]: { [ym]: rate } }     — tarif surchargé pour un mois donné
 function normalizePlan(p) {
-  return { days: (p && p.days) || {}, rates: (p && p.rates) || {} };
+  return {
+    days:      (p && p.days) || {},
+    rates:     (p && p.rates) || {},
+    overrides: (p && p.overrides) || {},
+  };
 }
 const planStore = makeStore({
   endpoint:   '/api/plan',
@@ -188,9 +194,10 @@ const planStore = makeStore({
   parseLoad:  normalizePlan,
 });
 const PlanDB = {
-  load:     ()               => planStore.load(),
-  saveDays: (add, remove)    => planStore.send('POST', { body: { add, remove } }),
-  saveRate: (category, rate) => planStore.send('POST', { body: { rates: { [category]: rate } } }),
+  load:     ()                     => planStore.load(),
+  saveDays: (add, remove)          => planStore.send('POST', { body: { add, remove } }),
+  saveRate: (category, rate)       => planStore.send('POST', { body: { rates: { [category]: rate } } }),
+  saveOverride: (category, ym, rate) => planStore.send('POST', { body: { overrides: [{ category, ym, rate }] } }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -441,7 +448,7 @@ const state = {
   expenses:     [],
   recurring:    [],
   goals:        {},
-  plan:         { days: {}, rates: {} },
+  plan:         { days: {}, rates: {}, overrides: {} },
   overrides:    [],
   view:         'calendar',
   currentYear:  today.getFullYear(),
@@ -488,12 +495,39 @@ function cachePlan() {
   if (IS_DEPLOYED) localStorage.setItem(userCacheKey(PLAN_KEY), JSON.stringify(state.plan));
 }
 
+// Tarif de base d'une catégorie (€/jour, réglé dans la vue Catégories)
+function planBaseRate(catId) {
+  return state.plan.rates[catId] || 0;
+}
+
+// Surcharge de tarif pour un mois précis (undefined si aucune)
+function planOverride(catId, year, month) {
+  const m = state.plan.overrides[catId];
+  return m ? m[ymKey(year, month)] : undefined;
+}
+
+// Tarif effectif d'un mois : surcharge si définie, sinon tarif de base
+function effectiveRate(catId, year, month) {
+  const ov = planOverride(catId, year, month);
+  return ov != null ? ov : planBaseRate(catId);
+}
+
+function setPlanOverrideLocal(catId, year, month, rate) {
+  const ym = ymKey(year, month);
+  if (rate > 0) {
+    (state.plan.overrides[catId] || (state.plan.overrides[catId] = {}))[ym] = rate;
+  } else if (state.plan.overrides[catId]) {
+    delete state.plan.overrides[catId][ym];
+    if (!Object.keys(state.plan.overrides[catId]).length) delete state.plan.overrides[catId];
+  }
+}
+
 // Calcule l'objectif dynamique d'une catégorie pour un mois donné :
-// tarif €/jour (vue Planning) × nombre de jours peints dans le mois.
+// tarif effectif du mois × nombre de jours peints.
 // Retourne null si la catégorie n'est pas « au jour », sans tarif ou sans jour peint.
 function getDynamicGoal(categoryId, year, month) {
   if (catMode(categoryId) !== 'jour') return null;
-  const rate = state.plan.rates[categoryId];
+  const rate = effectiveRate(categoryId, year, month);
   if (!(rate > 0)) return null;
   const n = planCountInMonth(categoryId, year, month);
   if (!n) return null;
@@ -1270,7 +1304,7 @@ function renderGoals() {
   }
   for (const cat of goalCats) {
     if (catMode(cat) === 'jour') {
-      const rate  = state.plan.rates[cat.id] || 0;
+      const rate  = effectiveRate(cat.id, currentYear, state.focusMonth);
       const nDays = planCountInMonth(cat.id, currentYear, state.focusMonth);
       const label = rate > 0
         ? `${fmtCompact(rate)}/j · ${nDays} j en ${MONTHS_SHORT[state.focusMonth]}`
@@ -1655,16 +1689,18 @@ function renderPlanning() {
       Dans l'onglet <strong>Catégories</strong>, passe une catégorie en « au jour » pour la planifier ici.</div>`;
     return;
   }
-  const active = getCat(planActiveCat);
-  const rate   = state.plan.rates[planActiveCat] || 0;
+  const active   = getCat(planActiveCat);
+  const baseRate = planBaseRate(planActiveCat);
+  const monthRate = effectiveRate(planActiveCat, currentYear, currentMonth);
+  const hasOverride = planOverride(planActiveCat, currentYear, currentMonth) != null;
 
   let html = `
     <div class="plan-header">
       <div>
         <h2 class="plan-title">Planning des catégories</h2>
         <p class="plan-subtitle">Choisissez une catégorie puis glissez sur les jours où elle s'applique
-        (re-glisser pour effacer). Avec un tarif €/jour, l'objectif mensuel de la catégorie est
-        calculé automatiquement dans l'onglet Objectifs.</p>
+        (re-glisser pour effacer). Le tarif de base se règle dans l'onglet Catégories ;
+        vous pouvez le surcharger ici pour le mois affiché.</p>
       </div>
       <div class="plan-nav">
         <button class="cal-nav-btn" id="plan-prev" aria-label="Mois précédent">&#8592;</button>
@@ -1682,14 +1718,19 @@ function renderPlanning() {
     </button>`;
   }
 
+  const baseHint = baseRate > 0
+    ? `base : ${fmtCompact(baseRate)}/j`
+    : `pas de tarif de base — définissez-le dans l'onglet Catégories`;
   html += `</div>
     <div class="plan-rate-bar">
       <span class="goal-dot" style="background:${active.color}"></span>
-      <label for="plan-rate-input">Tarif journalier — ${active.label}</label>
+      <label for="plan-rate-input">Tarif ${MONTHS[currentMonth].toLowerCase()} — ${active.label}</label>
       <input type="text" id="plan-rate-input" inputmode="decimal" placeholder="0,00"
-        value="${rate ? String(rate).replace('.', ',') : ''}" />
+        value="${monthRate ? String(monthRate).replace('.', ',') : ''}" />
       <span class="plan-rate-unit">€/jour</span>
-      ${rate > 0 ? '' : `<span class="plan-rate-hint">Sans tarif, les jours sont mémorisés mais aucun objectif n'est calculé.</span>`}
+      <button type="button" id="plan-rate-reset" class="plan-rate-reset${hasOverride ? '' : ' hidden'}"
+        title="Revenir au tarif de base pour ${MONTHS[currentMonth]}">↺ base</button>
+      <span class="plan-rate-hint">${hasOverride ? `surchargé ce mois · ${baseHint}` : baseHint}</span>
     </div>`;
 
   const firstDow    = new Date(currentYear, currentMonth, 1).getDay();
@@ -1714,9 +1755,9 @@ function renderPlanning() {
   }
   html += `</div>`;
 
-  // Résumé du mois : objectifs calculés par catégorie peinte
+  // Résumé du mois : objectifs calculés par catégorie peinte (tarif effectif du mois)
   const rows = cats
-    .map(cat => ({ cat, n: planCountInMonth(cat.id, currentYear, currentMonth), r: state.plan.rates[cat.id] || 0 }))
+    .map(cat => ({ cat, n: planCountInMonth(cat.id, currentYear, currentMonth), r: effectiveRate(cat.id, currentYear, currentMonth) }))
     .filter(x => x.n > 0);
   const totalPlanned = rows.reduce((s, x) => s + x.n * x.r, 0);
 
@@ -1752,7 +1793,9 @@ function wirePlanning(container) {
 
   const rateInput = $('plan-rate-input');
   rateInput.addEventListener('keydown', e => { if (e.key === 'Enter') rateInput.blur(); });
-  rateInput.addEventListener('blur', () => savePlanRate(planActiveCat, rateInput.value));
+  rateInput.addEventListener('blur', () => savePlanMonthRate(planActiveCat, state.currentYear, state.currentMonth, rateInput.value));
+  const rateReset = $('plan-rate-reset');
+  if (rateReset) rateReset.addEventListener('click', () => resetPlanMonthRate(planActiveCat, state.currentYear, state.currentMonth));
 
   const grid = $('plan-grid');
   grid.addEventListener('pointerdown', e => {
@@ -1798,7 +1841,8 @@ async function endPlanPaint() {
   if (state.view === 'planning') renderPlanning();
 }
 
-async function savePlanRate(catId, raw) {
+// Tarif de base d'une catégorie (réglé dans la vue Catégories)
+async function savePlanBaseRate(catId, raw) {
   const rate = parseAmount(raw);
   const prev = state.plan.rates[catId] || 0;
   if (rate === prev) return;
@@ -1807,13 +1851,38 @@ async function savePlanRate(catId, raw) {
   try {
     await PlanDB.saveRate(catId, rate > 0 ? rate : null);
     cachePlan();
-    showToast(rate > 0 ? `Tarif ${getCat(catId).label} : ${fmtEUR(rate)}/jour` : 'Tarif supprimé');
   } catch {
     if (prev > 0) state.plan.rates[catId] = prev;
     else delete state.plan.rates[catId];
     showToast('Erreur de sauvegarde du tarif');
   }
+  if (state.view === 'categories') renderCategories();
+  if (state.view === 'planning')   renderPlanning();
+  if (state.view === 'goals')      renderGoals();
+}
+
+// Surcharge de tarif pour le mois affiché dans le Planning.
+// Une valeur égale au tarif de base (ou 0/vide) supprime la surcharge.
+async function savePlanMonthRate(catId, year, month, raw) {
+  const rate = parseAmount(raw);
+  const base = planBaseRate(catId);
+  const prev = planOverride(catId, year, month);
+  const next = (rate > 0 && rate !== base) ? rate : null; // sinon on retombe sur la base
+  if ((prev ?? null) === next) return;
+  setPlanOverrideLocal(catId, year, month, next || 0);
+  try {
+    await PlanDB.saveOverride(catId, ymKey(year, month), next);
+    cachePlan();
+  } catch {
+    setPlanOverrideLocal(catId, year, month, prev ?? 0);
+    showToast('Erreur de sauvegarde du tarif du mois');
+  }
   if (state.view === 'planning') renderPlanning();
+}
+
+async function resetPlanMonthRate(catId, year, month) {
+  if (planOverride(catId, year, month) == null) return;
+  await savePlanMonthRate(catId, year, month, '');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1858,6 +1927,16 @@ function renderCategories() {
           title="Tarif €/jour · apparaît dans le Planning">Au jour</button>
       </div>`;
 
+    // Tarif de base €/j : seulement pour les catégories « au jour »
+    const base = state.plan.rates[cat.id] || 0;
+    const rateField = (!isIncome && mode === 'jour') ? `
+      <span class="cat-rate-field">
+        <input type="text" class="cat-rate-inp" data-id="${cat.id}" inputmode="decimal"
+          placeholder="tarif" value="${base ? String(base).replace('.', ',') : ''}"
+          aria-label="Tarif journalier de ${cat.label}" title="Tarif de base €/jour" />
+        <span class="cat-rate-unit">€/j</span>
+      </span>` : '';
+
     html += `
       <div class="cat-mgmt-item" data-id="${cat.id}">
         <label class="cat-color-label" title="Modifier la couleur">
@@ -1866,6 +1945,7 @@ function renderCategories() {
         </label>
         <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
         ${modeToggle}
+        ${rateField}
         <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
           ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
       </div>`;
@@ -1898,6 +1978,12 @@ function renderCategories() {
   // Type d'objectif (au mois / au jour)
   container.querySelectorAll('.cat-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => updateCatMode(btn.dataset.id, btn.dataset.mode));
+  });
+
+  // Tarif de base €/j (catégories « au jour »)
+  container.querySelectorAll('.cat-rate-inp').forEach(input => {
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+    input.addEventListener('blur', e => savePlanBaseRate(e.target.dataset.id, e.target.value));
   });
 
   // Suppression

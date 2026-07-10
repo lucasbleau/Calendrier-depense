@@ -1818,9 +1818,18 @@ body {
   gap: 0.35rem;
 }
 
+/* Une ligne = case catégorie + case tarif séparée + ✕ */
+.cat-mgmt-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
 .cat-mgmt-item {
+  flex: 1;
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px 122px 86px auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); /* nom | parent (centre) | mode (droite) */
   align-items: center;
   gap: 0.6rem;
   background: var(--surface);
@@ -1831,23 +1840,45 @@ body {
 }
 .cat-mgmt-item:hover { border-color: var(--border); }
 
-/* Cellules de la grille (nom | parent | mode | tarif | ✕) */
 .cat-cell-lead { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-.cat-cell { display: flex; align-items: center; min-width: 0; }
-.cat-cell-mode, .cat-cell-rate { justify-content: flex-end; }
-.cat-cell-parent .cat-parent-select { width: 100%; max-width: 100%; }
+.cat-cell-parent { justify-self: center; min-width: 0; }
+.cat-cell-mode { justify-self: end; display: flex; align-items: center; }
+.cat-parent-select { max-width: 160px; }
+
+/* Case tarif séparée (à droite de la case catégorie) */
+.cat-rate-box {
+  flex: 0 0 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+}
+.cat-rate-box .cat-rate-inp {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: right;
+}
+.cat-rate-box .cat-rate-inp:focus { outline: none; }
+.cat-rate-box:focus-within { border-color: var(--accent); }
+.cat-rate-box--empty { border: none; background: transparent; }
+
+.cat-mgmt-row > .btn-delete-cat { align-self: center; flex-shrink: 0; }
 
 @media (max-width: 640px) {
   .cat-mgmt-item {
     grid-template-columns: 1fr auto;
-    grid-template-areas: 'lead del' 'parent parent' 'mode rate';
-    row-gap: 0.45rem;
+    grid-template-areas: 'lead lead' 'parent mode';
+    gap: 0.4rem 0.6rem;
   }
   .cat-cell-lead   { grid-area: lead; }
-  .cat-mgmt-item > .btn-delete-cat { grid-area: del; align-self: start; }
-  .cat-cell-parent { grid-area: parent; }
-  .cat-cell-mode   { grid-area: mode; justify-content: flex-start; }
-  .cat-cell-rate   { grid-area: rate; }
+  .cat-cell-mode   { grid-area: mode; justify-self: end; }
+  .cat-cell-parent { grid-area: parent; justify-self: stretch; }
+  .cat-cell-parent .cat-parent-select { width: 100%; max-width: 100%; }
   .cat-mode-btn    { padding: 0.2rem 0.5rem; }
 }
 
@@ -1918,8 +1949,8 @@ body {
 .cat-rate-unit { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 
 /* Hiérarchie de catégories : enfant indenté dans sa cellule nom, colonnes alignées */
-.cat-mgmt-item.cat-child { background: var(--bg); }
-.cat-mgmt-item.cat-child .cat-cell-lead { padding-left: 1.3rem; }
+.cat-mgmt-row.cat-child .cat-mgmt-item { background: var(--bg); }
+.cat-mgmt-row.cat-child .cat-cell-lead { padding-left: 1.3rem; }
 .cat-child-mark { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
 .cat-group-badge {
   flex-shrink: 0;

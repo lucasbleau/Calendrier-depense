@@ -2019,14 +2019,15 @@ function renderCategories() {
           title="Tarif €/jour · apparaît dans le Planning">Au jour</button>
       </div>`;
 
+    // Tarif de base : case séparée à droite, uniquement pour les feuilles « au jour ».
     const base = state.plan.rates[cat.id] || 0;
-    const rateField = (!isIncome && !parentCat && mode === 'jour') ? `
-      <span class="cat-rate-field">
+    const rateBox = (!isIncome && !parentCat && mode === 'jour') ? `
+      <div class="cat-rate-box" title="Tarif de base €/jour">
         <input type="text" class="cat-rate-inp" data-id="${cat.id}" inputmode="decimal"
-          placeholder="tarif" value="${base ? String(base).replace('.', ',') : ''}"
-          aria-label="Tarif journalier de ${cat.label}" title="Tarif de base €/jour" />
+          placeholder="—" value="${base ? String(base).replace('.', ',') : ''}"
+          aria-label="Tarif journalier de ${cat.label}" />
         <span class="cat-rate-unit">€/j</span>
-      </span>` : '';
+      </div>` : `<div class="cat-rate-box cat-rate-box--empty" aria-hidden="true"></div>`;
 
     const groupBadge = parentCat
       ? `<span class="cat-group-badge" title="Somme de ses sous-catégories">groupe · Σ</span>`
@@ -2047,21 +2048,23 @@ function renderCategories() {
         </select>`;
     }
 
-    // Grille à colonnes fixes : chaque cellule est toujours rendue (vide si
-    // inutile) pour que tout s'aligne verticalement d'une ligne à l'autre.
+    // Case catégorie (nom · parent au centre · mode à droite), puis la case
+    // tarif SÉPARÉE, puis ✕ — le tout dans une ligne .cat-mgmt-row.
     return `
-      <div class="cat-mgmt-item${isChild ? ' cat-child' : ''}" data-id="${cat.id}">
-        <div class="cat-cell-lead">
-          ${isChild ? '<span class="cat-child-mark" aria-hidden="true">↳</span>' : ''}
-          <label class="cat-color-label" title="Modifier la couleur">
-            <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
-            <span class="cat-color-swatch" style="background:${cat.color}"></span>
-          </label>
-          <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
+      <div class="cat-mgmt-row${isChild ? ' cat-child' : ''}" data-id="${cat.id}">
+        <div class="cat-mgmt-item">
+          <div class="cat-cell-lead">
+            ${isChild ? '<span class="cat-child-mark" aria-hidden="true">↳</span>' : ''}
+            <label class="cat-color-label" title="Modifier la couleur">
+              <input type="color" class="cat-color-inp cat-color-edit" value="${cat.color}" data-id="${cat.id}" />
+              <span class="cat-color-swatch" style="background:${cat.color}"></span>
+            </label>
+            <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
+          </div>
+          <div class="cat-cell-parent">${parentSelect}</div>
+          <div class="cat-cell-mode">${groupBadge}${modeToggle}</div>
         </div>
-        <div class="cat-cell cat-cell-parent">${parentSelect}</div>
-        <div class="cat-cell cat-cell-mode">${groupBadge}${modeToggle}</div>
-        <div class="cat-cell cat-cell-rate">${rateField}</div>
+        ${rateBox}
         <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
           ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
       </div>`;

@@ -64,21 +64,15 @@ Deux modes complémentaires :
 ### Vue Objectifs
 
 - Tableau annuel (12 mois × toutes catégories de dépenses) avec colonne Total
-- **Objectif selon le mode de la catégorie** (réglé dans la vue Catégories, cf. `catMode`) :
-  - **« au jour »** (`mode: 'jour'`) : plafond calculé dynamiquement (`getDynamicGoal`) = tarif effectif du mois (base ou surcharge) × jours peints dans le Planning. Carte de réglage cliquable renvoyant vers l'onglet Planning.
-  - **« au mois »** (`mode: 'mois'`, défaut) : objectif mensuel fixe, édition inline ✏.
-- `getDynamicGoal` ne renvoie une valeur que pour les catégories « au jour » (sinon `null`, on retombe sur l'objectif manuel).
-- **Logique d'affichage par cellule** :
-  - Si dépense réelle > 0 : `réel/dénominateur` (dénominateur = récurrence prévue > objectif > rien)
-  - Si dépense = 0 et récurrence prévue > 0 : `↺prévu/prévu` (mois passé en style atténué, mois futur/courant normal)
-  - Si dépense = 0 et pas de récurrence, mois futur : affiche l'objectif seul
-  - Sinon : `—`
-  - Colorisation : vert < 80 % du dénominateur, orange 80–100 %, rouge ≥ 100 %
-- **Colonne Total** : `réel / planifié` où planifié = Σ(récurrence ou objectif par catégorie)
+- **Objectif « effectif » d'une catégorie feuille** (`getGoalForMonth`, réglé selon `catMode`) :
+  - **« au jour »** (`mode: 'jour'`) : plafond dynamique (`getDynamicGoal`) = tarif effectif du mois (base ou surcharge) × jours peints dans le Planning. Carte de réglage cliquable renvoyant vers Planning. Pas de repli sur les récurrences.
+  - **« au mois »** (`mode: 'mois'`, défaut) : **objectif auto = somme des récurrences du mois** (`recurExpected`) ; une **valeur manuelle** (✏, `state.goals`) **remplace tout** (même si inférieure aux récurrences — plus de `max()`). La carte affiche le montant auto avec un tag « auto » quand aucun manuel n'est fixé.
+- **Logique d'affichage par cellule** (`catFigures`) : réel = dépenses saisies + récurrences restantes (`recurRemaining`) ; dénominateur = objectif effectif (`getGoalForMonth`). Colorisation : vert < 80 % du dénominateur, orange 80–100 %, rouge ≥ 100 %.
+- **Colonne Total** : `réel / planifié` où planifié = Σ objectifs effectifs par catégorie
   - Barre de progression colorée
 - **Ligne de pied (tfoot)** : totaux annuels réel / planifié par colonne + grand total
 - Séparateur visuel entre dernière catégorie et colonne Total
-- **Regroupement par sous-catégories** : les colonnes du tableau et la liste « mois en avant » sont par catégorie de **premier niveau** (`tableCats = topLevelExpenseCats()`), agrégées via `groupFigures` (dépenses du parent + de ses enfants ; objectif = Σ enfants). Dans « mois en avant », un parent est **dépliable** (caret, `state.goalsExpanded`) pour voir le détail de ses sous-catégories. Les cartes de réglage restent par feuille, préfixées « Parent › Enfant ».
+- **Regroupement par sous-catégories** : les colonnes du tableau et la liste « mois en avant » sont par catégorie de **premier niveau** (`tableCats = topLevelExpenseCats()`), agrégées via `groupFigures` (somme d'elle-même + de ses sous-catégories, chacune avec ses dépenses et son objectif effectif). Dans « mois en avant », un parent est **dépliable** (caret, `state.goalsExpanded`) pour voir le détail de ses sous-catégories. Les cartes de réglage restent par feuille, préfixées « Parent › Enfant ».
 
 ### Vue Planning
 

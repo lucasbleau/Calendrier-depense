@@ -576,10 +576,16 @@ function getDynamicGoal(categoryId, year, month) {
 }
 
 // Retourne le plafond applicable : dynamique si défini, sinon objectif manuel
+// Objectif mensuel « effectif » d'une catégorie (feuille) :
+//  - « au jour » → objectif dynamique (tarif × jours planifiés)
+//  - « au mois » → valeur manuelle si définie (elle remplace tout),
+//                  sinon somme des récurrences du mois (objectif auto)
 function getGoalForMonth(categoryId, year, month) {
-  const dynamic = getDynamicGoal(categoryId, year, month);
-  if (dynamic !== null) return dynamic;
-  return state.goals[categoryId] || null;
+  if (catMode(categoryId) === 'jour') return getDynamicGoal(categoryId, year, month);
+  const manual = state.goals[categoryId];
+  if (manual > 0) return manual;
+  const r = recurExpected(categoryId, year, month);
+  return r > 0 ? r : null;
 }
 
 function getMonthData(year, month) {
@@ -617,11 +623,8 @@ function renderCalendar() {
   const goalIndicator = $('month-goal-indicator');
   if (goalIndicator) {
     const { spent: totalSpent, earned: totalEarned } = monthRealTotals(currentYear, currentMonth);
-    const totalPlanned = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY).reduce((s, cat) => {
-      const r = recurExpected(cat.id, currentYear, currentMonth);
-      const g = getGoalForMonth(cat.id, currentYear, currentMonth);
-      return s + (r > 0 ? r : (g || 0));
-    }, 0);
+    const totalPlanned = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY).reduce((s, cat) =>
+      s + (getGoalForMonth(cat.id, currentYear, currentMonth) || 0), 0);
     if (totalSpent > 0 || totalEarned > 0) {
       goalIndicator.textContent = `${fmtEUR(totalSpent)} / +${fmtEUR(totalEarned)}`;
       goalIndicator.className = `month-goal-indicator ${goalClass(totalSpent, totalPlanned)}`;
@@ -1343,7 +1346,7 @@ function renderGoals() {
   // Ligne de reglage / info des objectifs
   let html = goalsSubTabsHtml();
   if (goalCats.length) {
-    html += `<p class="goals-settings-hint">Catégories « au mois » : objectif fixe via ✏. Catégories « au jour » : tarif €/j réglé dans l'onglet Planning. Les sous-catégories sont indiquées « Parent › Enfant ».</p>`;
+    html += `<p class="goals-settings-hint">Catégories « au mois » : objectif = somme des récurrences (auto), ou valeur forcée via ✏. Catégories « au jour » : tarif €/j réglé dans le Planning. Sous-catégories indiquées « Parent › Enfant ».</p>`;
     html += `<div class="goals-settings">`;
   }
   const orderedGoalCats = [];
@@ -1363,6 +1366,7 @@ function renderGoals() {
       </div>`;
     } else {
       const limit   = state.goals[cat.id];
+      const autoR   = recurExpected(cat.id, currentYear, state.focusMonth); // objectif auto = récurrences
       const editing = state.editingGoal === cat.id;
       html += `<div class="goal-setting-card" data-cat="${cat.id}">
         <span class="goal-dot" style="background:${cat.color}"></span>
@@ -1370,13 +1374,16 @@ function renderGoals() {
       if (editing) {
         html += `<div class="goal-inline-edit" style="margin-left:auto">
           <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
-            value="${limit || ''}" placeholder="€/mois" inputmode="decimal" />
+            value="${limit || ''}" placeholder="${autoR > 0 ? 'auto ' + fmtCompact(autoR) : '€/mois'}" inputmode="decimal" />
           <button class="btn-goal-confirm" data-cat="${cat.id}">✓</button>
           <button class="btn-goal-cancel"  data-cat="${cat.id}">✕</button>
         </div>`;
       } else {
-        html += `<span class="goal-setting-amount">${limit ? fmtEUR(limit) + '/mois' : '—'}</span>
-          <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="Modifier">✏</button>`;
+        const amountLabel = limit
+          ? `${fmtEUR(limit)}/mois`
+          : (autoR > 0 ? `${fmtEUR(autoR)}/mois <span class="goal-auto-tag">auto</span>` : '—');
+        html += `<span class="goal-setting-amount">${amountLabel}</span>
+          <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="${limit ? 'Modifier' : 'Forcer une valeur (sinon = récurrences)'}">✏</button>`;
       }
       html += `</div>`;
     }
@@ -1392,27 +1399,23 @@ function renderGoals() {
       .reduce((s, e) => s + e.amount, 0);
     const r       = recurExpected(cat.id, currentYear, m);
     const rem     = recurRemaining(cat.id, currentYear, m);
-    const goal    = getGoalForMonth(cat.id, currentYear, m);
-    const denom   = goal ? Math.max(goal, r) : (r || null); // jamais sous l'objectif fixé
+    const goal    = getGoalForMonth(cat.id, currentYear, m); // manuel > récurrences (auto) > dynamique
+    const denom   = goal || null;
     const total   = amount + rem; // récurrences restantes seulement (pas de double comptage)
-    const planned = goal ? Math.max(goal, r) : r;
-    let cls = '';
-    if (r > 0)           cls = amount === 0 ? 'ok' : goalClass(total, denom);
-    else if (amount > 0) cls = denom ? goalClass(amount, denom) : '';
+    const planned = goal || 0;
+    const cls     = denom ? goalClass(total, denom) : '';
     return { amount, r, goal, denom, total, planned, cls };
   };
 
-  // Chiffres agrégés d'une catégorie de premier niveau : ses dépenses propres
-  // + celles de ses sous-catégories (dont les objectifs sont sommés). Une feuille
-  // renvoie simplement ses propres chiffres.
+  // Chiffres agrégés d'une catégorie de premier niveau : somme d'elle-même
+  // (dépenses + objectif propres) et de ses sous-catégories. Une feuille renvoie
+  // simplement ses propres chiffres.
   const groupFigures = (topCat, m) => {
-    const kids = childrenOf(topCat.id);
-    if (!kids.length) return catFigures(topCat, m);
-    const self = catFigures(topCat, m); // dépenses directes du parent (sans objectif propre)
-    let amount = self.amount, r = self.r, total = self.total;
-    let planned = 0, denom = 0, hasDenom = false, goal = 0;
-    for (const k of kids) {
-      const f = catFigures(k, m);
+    const ids = familyIds(topCat.id);
+    if (ids.length === 1) return catFigures(topCat, m);
+    let amount = 0, r = 0, total = 0, planned = 0, denom = 0, hasDenom = false, goal = 0;
+    for (const id of ids) {
+      const f = catFigures(getCat(id), m);
       amount += f.amount; r += f.r; total += f.total; planned += f.planned; goal += (f.goal || 0);
       if (f.denom) { denom += f.denom; hasDenom = true; }
     }
@@ -1651,8 +1654,8 @@ function renderGoalsDetail(container) {
     const r       = recurExpected(cat.id, currentYear, m); // prévu complet, occurrences saisies incluses
     const shown   = rows.reduce((s, x) => s + x.amount, 0);
     const goal    = getGoalForMonth(cat.id, currentYear, m);
-    const planned = goal ? Math.max(goal, r) : r;
-    const denom   = goal ? Math.max(goal, r) : (r || null);
+    const planned = goal || 0;
+    const denom   = goal || null;
     yearShown   += shown;
     yearPlanned += planned;
     months.push({ m, rows, shown, denom });

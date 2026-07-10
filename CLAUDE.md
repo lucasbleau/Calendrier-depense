@@ -64,9 +64,10 @@ Deux modes complémentaires :
 ### Vue Objectifs
 
 - Tableau annuel (12 mois × toutes catégories de dépenses) avec colonne Total
-- **Plafonds mensuels calculés dynamiquement** depuis la vue Planning (`getDynamicGoal`) : tarif €/jour de la catégorie × nombre de jours peints dans le mois. Disponible pour tous les comptes.
-- Catégories sans tarif Planning : objectif mensuel manuel (édition inline ✏)
-- Les cartes de réglage des catégories à tarif renvoient vers l'onglet Planning (clic)
+- **Objectif selon le mode de la catégorie** (réglé dans la vue Catégories, cf. `catMode`) :
+  - **« au jour »** (`mode: 'jour'`) : plafond calculé dynamiquement (`getDynamicGoal`) = tarif €/jour × jours peints dans le Planning. Carte de réglage cliquable renvoyant vers l'onglet Planning.
+  - **« au mois »** (`mode: 'mois'`, défaut) : objectif mensuel fixe, édition inline ✏.
+- `getDynamicGoal` ne renvoie une valeur que pour les catégories « au jour » (sinon `null`, on retombe sur l'objectif manuel).
 - **Logique d'affichage par cellule** :
   - Si dépense réelle > 0 : `réel/dénominateur` (dénominateur = récurrence prévue > objectif > rien)
   - Si dépense = 0 et récurrence prévue > 0 : `↺prévu/prévu` (mois passé en style atténué, mois futur/courant normal)
@@ -80,6 +81,7 @@ Deux modes complémentaires :
 
 ### Vue Planning
 
+- **Seules les catégories « au jour »** (`mode: 'jour'`, réglé dans Catégories) apparaissent ici. Si aucune, un message invite à en marquer une « au jour ».
 - **Calendrier interactif** type réservation : on choisit une catégorie (chips colorées) puis on **peint au glisser** (souris ou tactile, pointer events + `elementFromPoint`) les jours où elle s'applique ; re-glisser sur des jours peints les efface. Plusieurs catégories peuvent couvrir le même jour (points colorés dans les cellules).
 - **Tarif journalier** éditable par catégorie (barre au-dessus de la grille). Objectif mensuel auto = tarif × jours peints, consommé par la vue Objectifs via `getDynamicGoal`. Sans tarif : les jours sont mémorisés mais aucun objectif calculé.
 - **Résumé latéral** du mois : `n j × tarif = montant` par catégorie peinte + total planifié.
@@ -92,8 +94,9 @@ Deux modes complémentaires :
 - Liste toutes les catégories avec swatch couleur + label éditable inline
 - **Modifier la couleur** : clic sur le rond → color picker natif (mise à jour en live)
 - **Modifier le nom** : clic sur le texte, édition directe, confirmation au blur ou Entrée
-- **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter`
-- **Supprimer** : ✕ actif uniquement si catégorie non système et non utilisée par des opérations
+- **Type d'objectif** (`catMode`) : sélecteur segmenté par catégorie **Au mois** / **Au jour** (`updateCatMode`, champ `mode` persisté). « Au jour » fait apparaître la catégorie dans le Planning (tarif €/j réglé là-bas) ; « au mois » = objectif fixe. Défaut `mois`. Pas de sélecteur sur la catégorie Revenus.
+- **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter` (nouvelle catégorie créée en `mode: 'mois'`)
+- **Supprimer** : ✕ actif uniquement si catégorie non système, non utilisée par des opérations et non présente dans le planning (jours/tarif d'une catégorie « au jour »)
 - Modifications propagées instantanément aux dropdowns des modals
 
 ### Authentification (multi-utilisateurs)
@@ -134,7 +137,7 @@ api/
   expenses.js   — GET / POST / PUT / DELETE : table expenses (scopée user_id)
   recurring.js  — GET / POST / DELETE : table recurring_tasks (scopée user_id)
   goals.js      — GET / POST / DELETE : table goals (scopée user_id)
-  categories.js — GET / POST / DELETE : table categories (scopée user_id)
+  categories.js — GET / POST / DELETE : table categories (scopée user_id, champ mode inclus)
   plan.js       — GET / POST : tables plan_days + plan_rates (scopées user_id, POST batch add/remove/rates)
 ```
 
@@ -164,6 +167,7 @@ type Category = {
   id: string;            // slug généré depuis le label
   label: string;
   color: string;         // couleur hex
+  mode?: 'mois' | 'jour'; // objectif fixe mensuel (défaut) ou tarif €/j via Planning
 };
 
 type Goals = Record<string, number>; // category → limite mensuelle en €
@@ -223,12 +227,12 @@ users           — id (PK), username, username_lc (unique), pin_hash, pin_salt,
 expenses        — id (PK), user_id, date, label, amount, type, category, recur_id (FK recurring_tasks, SET NULL), created_at
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
 goals           — (user_id, category) PK, amount, updated_at
-categories      — (user_id, id) PK, label, color, created_at
+categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), created_at
 plan_days       — (user_id, category, date) PK — jours peints (vue Planning), FK categories CASCADE
 plan_rates      — (user_id, category) PK, rate, updated_at — tarif €/jour, FK categories CASCADE
 ```
 
-> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`) et `migrate-plan.sql` (tables `plan_days`/`plan_rates`).
+> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`) et `migrate-cat-mode.sql` (colonne `mode` sur `categories`).
 
 ## Déploiement
 

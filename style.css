@@ -1829,6 +1829,12 @@ body {
 }
 .cat-mgmt-item:hover { border-color: var(--border); }
 
+@media (max-width: 560px) {
+  .cat-mgmt-item { flex-wrap: wrap; row-gap: 0.4rem; }
+  .cat-label-edit { flex: 1 1 55%; }
+  .cat-mode-btn { padding: 0.2rem 0.5rem; }
+}
+
 .cat-label-edit {
   flex: 1;
   min-width: 0;
@@ -1844,6 +1850,35 @@ body {
   outline: none;
   background: var(--bg);
   box-shadow: 0 0 0 2px var(--accent-faint);
+}
+
+.cat-mode-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg);
+  padding: 2px;
+  gap: 2px;
+}
+.cat-mode-btn {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  padding: 0.2rem 0.6rem;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.cat-mode-btn:hover { color: var(--text); }
+.cat-mode-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(31, 35, 41, 0.08);
 }
 
 .btn-delete-cat {

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS categories (
   id         TEXT        NOT NULL,
   label      TEXT        NOT NULL,
   color      TEXT        NOT NULL DEFAULT '#9A9888',
+  mode       TEXT        NOT NULL DEFAULT 'mois', -- 'mois' (fixe) | 'jour' (tarif €/j, vue Planning)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, id)
 );

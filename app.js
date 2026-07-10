@@ -257,6 +257,14 @@ function getCat(id) {
     ?? CATEGORIES[CATEGORIES.length - 1];
 }
 
+// Mode d'objectif d'une catégorie : 'jour' (tarif €/j × jours peints dans le
+// Planning) ou 'mois' (montant fixe mensuel). Défaut : 'mois'. Seules les
+// catégories 'jour' apparaissent dans la vue Planning.
+function catMode(cat) {
+  const c = typeof cat === 'string' ? getCat(cat) : cat;
+  return c && c.mode === 'jour' ? 'jour' : 'mois';
+}
+
 // Clé année-mois "YYYY-MM" (month 0-indexé)
 function ymKey(year, month) {
   return `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -482,8 +490,9 @@ function cachePlan() {
 
 // Calcule l'objectif dynamique d'une catégorie pour un mois donné :
 // tarif €/jour (vue Planning) × nombre de jours peints dans le mois.
-// Retourne null si pas de tarif défini ou aucun jour peint.
+// Retourne null si la catégorie n'est pas « au jour », sans tarif ou sans jour peint.
 function getDynamicGoal(categoryId, year, month) {
+  if (catMode(categoryId) !== 'jour') return null;
   const rate = state.plan.rates[categoryId];
   if (!(rate > 0)) return null;
   const n = planCountInMonth(categoryId, year, month);
@@ -1248,25 +1257,28 @@ function renderGoals() {
 
   if (state.goalsTab === 'detail') { renderGoalsDetail(container); return; }
 
-  // Objectif par catégorie : automatique (tarif €/j × jours peints dans le
-  // Planning) quand un tarif est défini, sinon objectif mensuel manuel.
+  // Objectif par catégorie selon son mode (réglé dans l'onglet Catégories) :
+  // « au jour » → tarif €/j × jours peints (Planning) ; « au mois » → montant fixe manuel.
   const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
   const goalCats  = tableCats;
 
   // Ligne de reglage / info des objectifs
   let html = goalsSubTabsHtml();
   if (goalCats.length) {
-    html += `<p class="goals-settings-hint">Objectif mensuel manuel via ✏ — ou automatique via l'onglet Planning (tarif €/j × jours planifiés).</p>`;
+    html += `<p class="goals-settings-hint">Catégories « au mois » : objectif fixe via ✏. Catégories « au jour » : tarif €/j réglé dans l'onglet Planning. (Type modifiable dans Catégories.)</p>`;
     html += `<div class="goals-settings">`;
   }
   for (const cat of goalCats) {
-    const rate = state.plan.rates[cat.id];
-    if (rate > 0) {
+    if (catMode(cat) === 'jour') {
+      const rate  = state.plan.rates[cat.id] || 0;
       const nDays = planCountInMonth(cat.id, currentYear, state.focusMonth);
+      const label = rate > 0
+        ? `${fmtCompact(rate)}/j · ${nDays} j en ${MONTHS_SHORT[state.focusMonth]}`
+        : `tarif à définir`;
       html += `<div class="goal-rate-card" data-cat="${cat.id}" title="Modifier dans l'onglet Planning" role="button" tabindex="0">
         <span class="goal-dot" style="background:${cat.color}"></span>
         <span class="goal-cat-name">${cat.label}</span>
-        <span class="goal-rate-label">${fmtCompact(rate)}/j · ${nDays} j en ${MONTHS_SHORT[state.focusMonth]}</span>
+        <span class="goal-rate-label">${label}</span>
       </div>`;
     } else {
       const limit   = state.goals[cat.id];
@@ -1636,10 +1648,11 @@ function renderPlanning() {
   const container = $('planning-body');
   const { currentYear, currentMonth } = state;
 
-  const cats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
+  const cats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && catMode(c) === 'jour');
   if (!cats.find(c => c.id === planActiveCat)) planActiveCat = cats[0]?.id ?? null;
   if (!planActiveCat) {
-    container.innerHTML = `<div class="plan-empty">Créez d'abord une catégorie de dépense dans l'onglet Catégories.</div>`;
+    container.innerHTML = `<div class="plan-empty">Aucune catégorie « au jour ».<br>
+      Dans l'onglet <strong>Catégories</strong>, passe une catégorie en « au jour » pour la planifier ici.</div>`;
     return;
   }
   const active = getCat(planActiveCat);
@@ -1813,7 +1826,7 @@ function renderCategories() {
   let html = `
     <div class="cat-mgmt-header">
       <h2 class="cat-mgmt-title">Catégories</h2>
-      <p class="cat-mgmt-subtitle">Gérez les catégories disponibles. Les catégories système, celles utilisées par des opérations et celles présentes dans le planning ne peuvent pas être supprimées.</p>
+      <p class="cat-mgmt-subtitle">Gérez les catégories. Choisissez pour chacune un objectif <strong>au mois</strong> (montant fixe) ou <strong>au jour</strong> (tarif €/jour × jours planifiés — apparaît alors dans l'onglet Planning). Suppression impossible si la catégorie est système, utilisée par des opérations ou présente dans le planning.</p>
     </div>
     <div class="cat-add-form">
       <input type="text" id="new-cat-label" placeholder="Nom de la catégorie…" class="cat-add-input" />
@@ -1827,12 +1840,23 @@ function renderCategories() {
 
   CATEGORIES.forEach(cat => {
     const isSystem   = cat.id === DEFAULT_CATEGORY || cat.id === INCOME_CATEGORY;
+    const isIncome   = cat.id === INCOME_CATEGORY;
     const usedCount  = state.expenses.filter(e => e.category === cat.id).length;
-    const inPlan     = planDates(cat.id).length > 0 || state.plan.rates[cat.id] > 0;
+    const inPlan     = catMode(cat) === 'jour' && (planDates(cat.id).length > 0 || state.plan.rates[cat.id] > 0);
     const canDelete  = !isSystem && !inPlan && usedCount === 0;
     const delTitle   = isSystem ? 'Catégorie système'
       : inPlan ? 'Utilisée dans le planning'
       : (usedCount > 0 ? `${usedCount} opération(s) liée(s)` : 'Supprimer');
+
+    // Type d'objectif : au mois (fixe) / au jour (Planning). Pas pour les revenus.
+    const mode = catMode(cat);
+    const modeToggle = isIncome ? '' : `
+      <div class="cat-mode-toggle" role="group" aria-label="Type d'objectif de ${cat.label}">
+        <button type="button" class="cat-mode-btn ${mode === 'mois' ? 'active' : ''}" data-id="${cat.id}" data-mode="mois"
+          title="Objectif mensuel fixe">Au mois</button>
+        <button type="button" class="cat-mode-btn ${mode === 'jour' ? 'active' : ''}" data-id="${cat.id}" data-mode="jour"
+          title="Tarif €/jour · apparaît dans le Planning">Au jour</button>
+      </div>`;
 
     html += `
       <div class="cat-mgmt-item" data-id="${cat.id}">
@@ -1841,6 +1865,7 @@ function renderCategories() {
           <span class="cat-color-swatch" style="background:${cat.color}"></span>
         </label>
         <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
+        ${modeToggle}
         <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
           ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
       </div>`;
@@ -1870,10 +1895,34 @@ function renderCategories() {
     input.addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
   });
 
+  // Type d'objectif (au mois / au jour)
+  container.querySelectorAll('.cat-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => updateCatMode(btn.dataset.id, btn.dataset.mode));
+  });
+
   // Suppression
   container.querySelectorAll('.btn-delete-cat:not([disabled])').forEach(btn => {
     btn.addEventListener('click', () => deleteCategory(btn.dataset.id));
   });
+}
+
+async function updateCatMode(id, mode) {
+  if (mode !== 'jour' && mode !== 'mois') return;
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat || catMode(cat) === mode) return;
+  const prev = cat.mode;
+  cat.mode = mode;
+  try {
+    await CatDB.upsert(cat);
+  } catch {
+    cat.mode = prev;
+    showToast('Erreur lors de la sauvegarde');
+    return;
+  }
+  renderCategories();
+  showToast(mode === 'jour'
+    ? `« ${cat.label} » : au jour → réglez son tarif dans le Planning`
+    : `« ${cat.label} » : au mois`);
 }
 
 async function addCategory() {
@@ -1892,7 +1941,7 @@ async function addCategory() {
     return;
   }
 
-  const newCat = { id, label, color: colorInput.value };
+  const newCat = { id, label, color: colorInput.value, mode: 'mois' };
   CATEGORIES.push(newCat);
   try {
     await CatDB.upsert(newCat);

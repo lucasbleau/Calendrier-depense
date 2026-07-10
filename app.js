@@ -2169,15 +2169,19 @@ async function addCategory() {
   const label = labelInput.value.trim();
   if (!label) { labelInput.focus(); return; }
 
-  const id = label.toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '');
-
-  if (CATEGORIES.find(c => c.id === id)) {
+  // Doublon = même libellé visible (l'id interne, lui, est toujours rendu unique) :
+  // une catégorie renommée « squatte » son ancien slug, il ne doit pas bloquer.
+  if (CATEGORIES.some(c => c.label.trim().toLowerCase() === label.toLowerCase())) {
     showToast('Une catégorie avec ce nom existe déjà');
     return;
   }
+
+  const base = label.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '') || 'cat';
+  let id = base, n = 2;
+  while (CATEGORIES.some(c => c.id === id)) id = `${base}_${n++}`;
 
   const newCat = { id, label, color: colorInput.value, mode: 'mois' };
   CATEGORIES.push(newCat);

@@ -42,7 +42,7 @@ Deux modes complémentaires :
 - Défauts : Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre
 - Chaque catégorie : `id` (slug généré), `label`, `color` (hex)
 - Persistance : `localStorage` clé `expense-calendar-categories-v1` (config utilisateur, pas sync serveur)
-- Suppression impossible si catégorie utilisée par des opérations ou si catégorie système (GOAL_CATEGORIES)
+- Suppression impossible si catégorie utilisée par des opérations, présente dans le Planning (jours ou tarif), ou système (`autre`, `revenus`)
 
 ### Vue Statistiques
 
@@ -64,12 +64,9 @@ Deux modes complémentaires :
 ### Vue Objectifs
 
 - Tableau annuel (12 mois × toutes catégories de dépenses) avec colonne Total
-- **Plafonds mensuels calculés dynamiquement** pour 4 catégories d'après `CITY_DAYS` × `DAILY_RATES` :
-  - Courses : 8,50 €/j à Besançon
-  - Essence : 4 €/j à Besançon
-  - Dijon Loisirs : 23 €/j à Dijon
-  - Dijon Appart : 22,80 €/j à Dijon
-- Besac Loisirs : objectif manuel (édition inline ✏)
+- **Plafonds mensuels calculés dynamiquement** depuis la vue Planning (`getDynamicGoal`) : tarif €/jour de la catégorie × nombre de jours peints dans le mois. Disponible pour tous les comptes.
+- Catégories sans tarif Planning : objectif mensuel manuel (édition inline ✏)
+- Les cartes de réglage des catégories à tarif renvoient vers l'onglet Planning (clic)
 - **Logique d'affichage par cellule** :
   - Si dépense réelle > 0 : `réel/dénominateur` (dénominateur = récurrence prévue > objectif > rien)
   - Si dépense = 0 et récurrence prévue > 0 : `↺prévu/prévu` (mois passé en style atténué, mois futur/courant normal)
@@ -80,7 +77,15 @@ Deux modes complémentaires :
   - Barre de progression colorée
 - **Ligne de pied (tfoot)** : totaux annuels réel / planifié par colonne + grand total
 - Séparateur visuel entre dernière catégorie et colonne Total
-- Sources : `Jour-besac-dijon.md` (jours par ville), `prix-activité-jour.md` (tarifs)
+
+### Vue Planning
+
+- **Calendrier interactif** type réservation : on choisit une catégorie (chips colorées) puis on **peint au glisser** (souris ou tactile, pointer events + `elementFromPoint`) les jours où elle s'applique ; re-glisser sur des jours peints les efface. Plusieurs catégories peuvent couvrir le même jour (points colorés dans les cellules).
+- **Tarif journalier** éditable par catégorie (barre au-dessus de la grille). Objectif mensuel auto = tarif × jours peints, consommé par la vue Objectifs via `getDynamicGoal`. Sans tarif : les jours sont mémorisés mais aucun objectif calculé.
+- **Résumé latéral** du mois : `n j × tarif = montant` par catégorie peinte + total planifié.
+- Navigation mois partagée avec le calendrier principal (`state.currentMonth/Year`, flèches clavier actives).
+- Un glisser = un batch : les jours ajoutés/retirés sont envoyés en une seule requête `POST /api/plan` au relâchement (rollback local + toast si échec).
+- **Graine propriétaire** (`seedOwnerPlan`) : au premier chargement avec un planning entièrement vide, le compte owner est initialisé depuis `LEGACY_PLAN_SEED` (ex `CITY_DAYS`×`DAILY_RATES` 2026) — jours Besançon posés en début de mois, jours Dijon en fin (placement arbitraire, seuls les totaux mensuels comptent).
 
 ### Vue Catégories
 
@@ -99,7 +104,7 @@ Deux modes complémentaires :
 - **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), username en `USER_KEY`. Envoyé via `x-auth-token`.
 - **Isolation des données (critique)** : `withDb` (`api/_lib.js`) extrait l'`user_id` du token vérifié et le passe à chaque route. **Toutes** les requêtes sont filtrées par `user_id` (WHERE + INSERT + `UPDATE/DELETE … WHERE id=$ AND user_id=$`). L'`user_id` ne vient jamais du body/query. Un utilisateur ne peut ni lire ni modifier les données d'un autre, même en forgeant un id.
 - **Catégories par compte** : isolées par `user_id` (PK composite `(user_id, id)`). À l'inscription, seules **2 catégories structurelles** sont seedées (`Revenus`, `Autre`) — les nouveaux comptes partent neutres et créent les leurs.
-- **Compte propriétaire** (`OWNER_USERNAME` dans `app.js`, = `lucas_bleau`) : la config personnelle hardcodée (budgets ville calculés `CITY_DAYS×DAILY_RATES`, catégories suivies `GOAL_CATEGORIES`) ne s'applique **qu'à lui** via `isOwner()`. Les autres comptes n'ont aucun plafond calculé. En local (dev) : toujours owner.
+- **Compte propriétaire** (`OWNER_USERNAME` dans `app.js`, = `lucas_bleau`) : ne sert plus qu'à la **graine du Planning** (`seedOwnerPlan` initialise son planning depuis `LEGACY_PLAN_SEED` s'il est vide). Les plafonds dynamiques (Planning) sont désormais disponibles pour **tous les comptes**. En local (dev) : toujours owner.
 - **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:username`) pour éviter toute fuite inter-comptes sur un appareil partagé.
 - **Déconnexion** : bouton header → vide `sessionStorage` et recharge.
 - En local (`file://` ou `localhost`) : aucune auth, mono-utilisateur localStorage, overlay jamais affiché.
@@ -130,6 +135,7 @@ api/
   recurring.js  — GET / POST / DELETE : table recurring_tasks (scopée user_id)
   goals.js      — GET / POST / DELETE : table goals (scopée user_id)
   categories.js — GET / POST / DELETE : table categories (scopée user_id)
+  plan.js       — GET / POST : tables plan_days + plan_rates (scopées user_id, POST batch add/remove/rates)
 ```
 
 ### Modèle de données
@@ -161,6 +167,11 @@ type Category = {
 };
 
 type Goals = Record<string, number>; // category → limite mensuelle en €
+
+type Plan = {
+  days:  Record<string, string[]>; // category → dates YYYY-MM-DD « peintes » (vue Planning)
+  rates: Record<string, number>;   // category → tarif €/jour (objectif auto = rate × jours du mois)
+};
 ```
 
 ### Constantes clés (app.js)
@@ -168,9 +179,7 @@ type Goals = Record<string, number>; // category → limite mensuelle en €
 | Constante | Rôle |
 |---|---|
 | `let CATEGORIES` | Liste courante des catégories (initialisée depuis défauts, surchargeable via CatDB) |
-| `GOAL_CATEGORIES` | IDs des catégories suivies dans la vue Objectifs (hardcodé) |
-| `CITY_DAYS` | Jours par mois à Besançon/Dijon pour l'année en cours |
-| `DAILY_RATES` | Tarif journalier par catégorie et ville |
+| `LEGACY_PLAN_SEED` | Ancienne config « budgets ville » (ex `CITY_DAYS`×`DAILY_RATES`) — sert uniquement à initialiser le Planning du compte owner (`seedOwnerPlan`) |
 | `CATEGORY_KEYWORDS` | Mots-clés pour l'auto-détection de catégorie à l'import CSV |
 
 ### Clés localStorage
@@ -180,6 +189,7 @@ type Goals = Record<string, number>; // category → limite mensuelle en €
 | `expense-calendar-data-v1` | `Expense[]` |
 | `expense-calendar-recurring-v1` | `RecurringTask[]` |
 | `expense-calendar-goals-v1` | `Goals` |
+| `expense-calendar-plan-v1` | `Plan` (jours peints + tarifs de la vue Planning) |
 | `expense-calendar-categories-v1` | `Category[]` (si modifié, sinon défauts hardcodés) |
 | `expense-calendar-auth-v1` | Token d'auth signé (sessionStorage) |
 | `expense-calendar-user-v1` | Username du compte connecté (sessionStorage) |
@@ -215,9 +225,11 @@ expenses        — id (PK), user_id, date, label, amount, type, category, recur
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
 goals           — (user_id, category) PK, amount, updated_at
 categories      — (user_id, id) PK, label, color, created_at
+plan_days       — (user_id, category, date) PK — jours peints (vue Planning), FK categories CASCADE
+plan_rates      — (user_id, category) PK, rate, updated_at — tarif €/jour, FK categories CASCADE
 ```
 
-> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`).
+> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`) et `migrate-plan.sql` (tables `plan_days`/`plan_rates`).
 
 ## Déploiement
 
@@ -229,6 +241,7 @@ Browser → /api/expenses     → Postgres (expenses WHERE user_id)       ← to
 Browser → /api/recurring    → Postgres (recurring_tasks WHERE user_id) ← token requis
 Browser → /api/goals        → Postgres (goals WHERE user_id)           ← token requis
 Browser → /api/categories   → Postgres (categories WHERE user_id)      ← token requis
+Browser → /api/plan         → Postgres (plan_days + plan_rates WHERE user_id) ← token requis
 ```
 
 ### Variables d'environnement Vercel
@@ -289,7 +302,7 @@ Browser → /api/categories   → Postgres (categories WHERE user_id)      ← t
 - Format monétaire et dates toujours via les helpers — ne jamais réimplémenter inline
 - Pas de commentaires sauf si le WHY est non-évident
 - Dual-mode storage : toujours vérifier `IS_DEPLOYED` avant tout appel réseau ou accès localStorage
-- **Catégories** : toujours lire depuis `CATEGORIES` (variable `let`, peut être surchargée par CatDB), jamais hardcoder un id de catégorie sauf dans `GOAL_CATEGORIES`
+- **Catégories** : toujours lire depuis `CATEGORIES` (variable `let`, peut être surchargée par CatDB), jamais hardcoder un id de catégorie sauf `DEFAULT_CATEGORY`, `INCOME_CATEGORY` et `LEGACY_PLAN_SEED`
 
 ## Hors scope
 

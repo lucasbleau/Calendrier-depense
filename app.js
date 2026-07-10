@@ -11,6 +11,7 @@ const AUTH_KEY       = 'expense-calendar-auth-v1';
 const USER_KEY       = 'expense-calendar-user-v1';
 const CATEGORIES_KEY = 'expense-calendar-categories-v1';
 const OVERRIDES_KEY  = 'expense-calendar-recurring-overrides-v1';
+const PLAN_KEY       = 'expense-calendar-plan-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -31,41 +32,23 @@ let CATEGORIES = [
   { id: 'autre',         label: 'Autre',         color: '#9A9888' },
 ];
 
-// Catégories suivies dans la vue Objectifs
-const GOAL_CATEGORIES = ['courses', 'essence', 'dijon_loisirs', 'dijon_appart', 'besac_loisirs'];
-
-// Catégories spéciales (seuls ids hardcodés tolérés hors GOAL_CATEGORIES, cf. CLAUDE.md)
+// Catégories spéciales (seuls ids hardcodés tolérés, cf. CLAUDE.md)
 const DEFAULT_CATEGORY = 'autre';
 const INCOME_CATEGORY  = 'revenus';
 
 // Seuil d'alerte des objectifs (réel / plafond)
 const GOAL_WARN_RATIO = 0.8;
 
-// Jours par mois passés à Besançon et Dijon [besac, dijon] — indice 0 = janvier
-const CITY_DAYS = {
-  2026: [
-    [26,  5],  // Janvier
-    [23,  5],  // Février
-    [26,  5],  // Mars
-    [25,  5],  // Avril
-    [23,  8],  // Mai
-    [25,  5],  // Juin
-    [21, 10],  // Juillet
-    [26,  5],  // Août
-    [27,  3],  // Septembre
-    [24,  7],  // Octobre
-    [25,  5],  // Novembre
-    [28,  3],  // Décembre
-  ],
-};
-
-// Tarif journalier par catégorie et par ville
-const DAILY_RATES = {
-  courses:       { besac: 8.5, dijon: 0,  label: '8,50 €/j · Besac' },
-  essence:       { besac: 4,   dijon: 0,  label: '4 €/j · Besac'    },
-  dijon_loisirs: { besac: 0,   dijon: 23,   label: '23 €/j · Dijon'    },
-  dijon_appart:  { besac: 0,   dijon: 22.8, label: '22,80 €/j · Dijon' },
-  // besac_loisirs : objectif manuel (pas de tarif journalier défini)
+// Ancienne config « budgets ville » du propriétaire (ex CITY_DAYS × DAILY_RATES).
+// Ne sert plus qu'à initialiser son Planning s'il est entièrement vide
+// (cf. seedOwnerPlan) : jours Besançon posés en début de mois, jours Dijon en fin.
+const LEGACY_PLAN_SEED = {
+  rates: { courses: 8.5, essence: 4, dijon_loisirs: 23, dijon_appart: 22.8 },
+  city:  { courses: 'besac', essence: 'besac', dijon_loisirs: 'dijon', dijon_appart: 'dijon' },
+  // [jours Besançon, jours Dijon] par mois — indice 0 = janvier
+  cityDays: {
+    2026: [[26,5],[23,5],[26,5],[25,5],[23,8],[25,5],[21,10],[26,5],[27,3],[24,7],[25,5],[28,3]],
+  },
 };
 
 const CATEGORY_KEYWORDS = {
@@ -91,9 +74,9 @@ const IS_DEPLOYED = (
   window.location.hostname !== '127.0.0.1'
 );
 
-// Compte « propriétaire » : la config personnelle (budgets ville calculés via
-// CITY_DAYS×DAILY_RATES + catégories suivies GOAL_CATEGORIES) ne s'applique qu'à lui.
-// Les autres comptes partent neutres (aucun plafond calculé, pas de catégories suivies).
+// Compte « propriétaire » : seul son Planning est initialisé depuis l'ancienne
+// config « budgets ville » (LEGACY_PLAN_SEED, cf. seedOwnerPlan). Les autres
+// comptes partent avec un planning vide qu'ils remplissent eux-mêmes.
 // En local (mono-utilisateur dev) : toujours considéré owner.
 const OWNER_USERNAME = 'lucas_bleau';
 function isOwner() {
@@ -213,6 +196,23 @@ const CatDB = {
     if (!IS_DEPLOYED) return;
     await categoriesStore.send('DELETE', { query: `?id=${encodeURIComponent(id)}` });
   },
+};
+
+// Planning : jours peints par catégorie + tarifs €/jour
+function normalizePlan(p) {
+  return { days: (p && p.days) || {}, rates: (p && p.rates) || {} };
+}
+const planStore = makeStore({
+  endpoint:   '/api/plan',
+  readLocal:  () => normalizePlan(JSON.parse(localStorage.getItem(PLAN_KEY) || 'null')),
+  writeLocal: () => localStorage.setItem(PLAN_KEY, JSON.stringify(state.plan)),
+  parseLoad:  normalizePlan,
+});
+const PlanDB = {
+  load:     ()               => planStore.load(),
+  saveDays: (add, remove)    => planStore.send('POST', { body: { add, remove } }),
+  saveRate: (category, rate) => planStore.send('POST', { body: { rates: { [category]: rate } } }),
+  seed:     (add, rates)     => planStore.send('POST', { body: { add, rates } }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -455,6 +455,7 @@ const state = {
   expenses:     [],
   recurring:    [],
   goals:        {},
+  plan:         { days: {}, rates: {} },
   overrides:    [],
   view:         'calendar',
   currentYear:  today.getFullYear(),
@@ -475,18 +476,41 @@ let pendingRecurId   = null; // id de la récurrence source quand l'opération e
 // Agrégations
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Calcule l'objectif dynamique d'une catégorie pour un mois donné
-// Retourne null si aucune donnée disponible (autre année ou tarif non défini)
+// ── Planning : jours peints par catégorie ────────────────────────────────────
+
+function planDates(catId) {
+  return state.plan.days[catId] || [];
+}
+
+function planHasDay(catId, dateStr) {
+  return planDates(catId).includes(dateStr);
+}
+
+function planCountInMonth(catId, year, month) {
+  const prefix = ymKey(year, month);
+  return planDates(catId).reduce((n, d) => n + (d.startsWith(prefix) ? 1 : 0), 0);
+}
+
+function setPlanDayLocal(catId, dateStr, on) {
+  const list = state.plan.days[catId] || (state.plan.days[catId] = []);
+  const i = list.indexOf(dateStr);
+  if (on && i === -1)  list.push(dateStr);
+  if (!on && i !== -1) list.splice(i, 1);
+}
+
+function cachePlan() {
+  if (IS_DEPLOYED) localStorage.setItem(userCacheKey(PLAN_KEY), JSON.stringify(state.plan));
+}
+
+// Calcule l'objectif dynamique d'une catégorie pour un mois donné :
+// tarif €/jour (vue Planning) × nombre de jours peints dans le mois.
+// Retourne null si pas de tarif défini ou aucun jour peint.
 function getDynamicGoal(categoryId, year, month) {
-  if (!isOwner()) return null; // budgets ville calculés : compte propriétaire uniquement
-  const yearData = CITY_DAYS[year];
-  if (!yearData) return null;
-  const days  = yearData[month];
-  if (!days)   return null;
-  const rates = DAILY_RATES[categoryId];
-  if (!rates)  return null;
-  const amount = days[0] * rates.besac + days[1] * rates.dijon;
-  return amount > 0 ? Math.round(amount * 100) / 100 : null;
+  const rate = state.plan.rates[categoryId];
+  if (!(rate > 0)) return null;
+  const n = planCountInMonth(categoryId, year, month);
+  if (!n) return null;
+  return Math.round(rate * n * 100) / 100;
 }
 
 // Retourne le plafond applicable : dynamique si défini, sinon objectif manuel
@@ -1246,26 +1270,25 @@ function renderGoals() {
 
   if (state.goalsTab === 'detail') { renderGoalsDetail(container); return; }
 
-  // Owner : budgets ville calculés + catégories suivies hardcodées.
-  // Autres comptes : objectif mensuel manuel sur chacune de leurs catégories de dépense.
-  const goalCats  = isOwner()
-    ? GOAL_CATEGORIES.map(id => getCat(id))
-    : CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
+  // Objectif par catégorie : automatique (tarif €/j × jours peints dans le
+  // Planning) quand un tarif est défini, sinon objectif mensuel manuel.
   const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
+  const goalCats  = tableCats;
 
   // Ligne de reglage / info des objectifs
   let html = goalsSubTabsHtml();
   if (goalCats.length) {
-    if (!isOwner()) html += `<p class="goals-settings-hint">Définissez un objectif mensuel par catégorie en cliquant sur ✏.</p>`;
+    html += `<p class="goals-settings-hint">Objectif mensuel manuel via ✏ — ou automatique via l'onglet Planning (tarif €/j × jours planifiés).</p>`;
     html += `<div class="goals-settings">`;
   }
   for (const cat of goalCats) {
-    const rates = DAILY_RATES[cat.id];
-    if (rates) {
-      html += `<div class="goal-rate-card" data-cat="${cat.id}">
+    const rate = state.plan.rates[cat.id];
+    if (rate > 0) {
+      const nDays = planCountInMonth(cat.id, currentYear, state.focusMonth);
+      html += `<div class="goal-rate-card" data-cat="${cat.id}" title="Modifier dans l'onglet Planning" role="button" tabindex="0">
         <span class="goal-dot" style="background:${cat.color}"></span>
         <span class="goal-cat-name">${cat.label}</span>
-        <span class="goal-rate-label">${rates.label}</span>
+        <span class="goal-rate-label">${fmtCompact(rate)}/j · ${nDays} j en ${MONTHS_SHORT[state.focusMonth]}</span>
       </div>`;
     } else {
       const limit   = state.goals[cat.id];
@@ -1433,6 +1456,10 @@ function renderGoals() {
       state.focusMonth = +tr.dataset.focusMonth;
       renderGoals();
     });
+  });
+  container.querySelectorAll('.goal-rate-card').forEach(el => {
+    el.addEventListener('click', () => setView('planning'));
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') setView('planning'); });
   });
   container.querySelectorAll('.btn-set-goal').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1619,6 +1646,220 @@ async function saveGoal(category) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Vue Planning : calendrier interactif — on peint au glisser les jours où une
+// catégorie s'applique ; objectif mensuel auto = tarif €/j × jours peints
+// (cf. getDynamicGoal, consommé par la vue Objectifs)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let planActiveCat = null;  // catégorie en cours de peinture
+let planPaint     = null;  // glisser en cours : { on, touched, add, remove }
+
+// Initialise le Planning du propriétaire depuis l'ancienne config « budgets
+// ville » — uniquement si son planning est entièrement vide (premier passage).
+// Le placement exact des jours est arbitraire (Besançon en début de mois,
+// Dijon en fin) : seuls les totaux mensuels comptent pour les objectifs,
+// l'utilisateur affine ensuite dans le calendrier.
+async function seedOwnerPlan() {
+  if (!isOwner()) return;
+  if (Object.keys(state.plan.days).length || Object.keys(state.plan.rates).length) return;
+
+  const add = [];
+  for (const [yearStr, months] of Object.entries(LEGACY_PLAN_SEED.cityDays)) {
+    const year = +yearStr;
+    months.forEach(([besac, dijon], m) => {
+      const dim = daysIn(year, m);
+      for (const [catId, city] of Object.entries(LEGACY_PLAN_SEED.city)) {
+        const n = Math.min(dim, city === 'besac' ? besac : dijon);
+        for (let i = 0; i < n; i++) {
+          const day = city === 'besac' ? i + 1 : dim - i;
+          add.push({ category: catId, date: dateKey(year, m, day) });
+        }
+      }
+    });
+  }
+
+  for (const { category, date } of add) setPlanDayLocal(category, date, true);
+  state.plan.rates = { ...LEGACY_PLAN_SEED.rates };
+  try {
+    await PlanDB.seed(add, LEGACY_PLAN_SEED.rates);
+    showToast('Planning initialisé depuis vos budgets ville');
+  } catch {
+    state.plan = { days: {}, rates: {} };
+  }
+}
+
+function renderPlanning() {
+  const container = $('planning-body');
+  const { currentYear, currentMonth } = state;
+
+  const cats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
+  if (!cats.find(c => c.id === planActiveCat)) planActiveCat = cats[0]?.id ?? null;
+  if (!planActiveCat) {
+    container.innerHTML = `<div class="plan-empty">Créez d'abord une catégorie de dépense dans l'onglet Catégories.</div>`;
+    return;
+  }
+  const active = getCat(planActiveCat);
+  const rate   = state.plan.rates[planActiveCat] || 0;
+
+  let html = `
+    <div class="plan-header">
+      <div>
+        <h2 class="plan-title">Planning des catégories</h2>
+        <p class="plan-subtitle">Choisissez une catégorie puis glissez sur les jours où elle s'applique
+        (re-glisser pour effacer). Avec un tarif €/jour, l'objectif mensuel de la catégorie est
+        calculé automatiquement dans l'onglet Objectifs.</p>
+      </div>
+      <div class="plan-nav">
+        <button class="cal-nav-btn" id="plan-prev" aria-label="Mois précédent">&#8592;</button>
+        <span class="plan-month-title">${MONTHS[currentMonth]} ${currentYear}</span>
+        <button class="cal-nav-btn" id="plan-next" aria-label="Mois suivant">&#8594;</button>
+      </div>
+    </div>
+    <div class="plan-chips" role="tablist" aria-label="Catégorie à peindre">`;
+
+  for (const cat of cats) {
+    const n = planCountInMonth(cat.id, currentYear, currentMonth);
+    html += `<button class="plan-chip${cat.id === planActiveCat ? ' active' : ''}" data-cat="${cat.id}"
+      role="tab" aria-selected="${cat.id === planActiveCat}">
+      <span class="goal-dot" style="background:${cat.color}"></span>${cat.label}${n ? `<span class="plan-chip-count">${n} j</span>` : ''}
+    </button>`;
+  }
+
+  html += `</div>
+    <div class="plan-rate-bar">
+      <span class="goal-dot" style="background:${active.color}"></span>
+      <label for="plan-rate-input">Tarif journalier — ${active.label}</label>
+      <input type="text" id="plan-rate-input" inputmode="decimal" placeholder="0,00"
+        value="${rate ? String(rate).replace('.', ',') : ''}" />
+      <span class="plan-rate-unit">€/jour</span>
+      ${rate > 0 ? '' : `<span class="plan-rate-hint">Sans tarif, les jours sont mémorisés mais aucun objectif n'est calculé.</span>`}
+    </div>`;
+
+  const firstDow    = new Date(currentYear, currentMonth, 1).getDay();
+  const startOffset = firstDow === 0 ? 6 : firstDow - 1;
+  const dim         = daysIn(currentYear, currentMonth);
+  const now         = todayStr();
+
+  html += `<div class="plan-layout"><div class="plan-grid" id="plan-grid" style="--cat-color:${active.color}">`;
+  for (const d of DAYS_SHORT) html += `<div class="plan-dow">${d}</div>`;
+  for (let i = 0; i < startOffset; i++) html += `<div class="plan-cell empty"></div>`;
+  for (let day = 1; day <= dim; day++) {
+    const dateStr = dateKey(currentYear, currentMonth, day);
+    const marked  = planHasDay(planActiveCat, dateStr);
+    const dots = cats
+      .filter(c => c.id !== planActiveCat && planHasDay(c.id, dateStr))
+      .map(c => `<span class="plan-dot" style="background:${c.color}" title="${c.label}"></span>`)
+      .join('');
+    html += `<div class="plan-cell${marked ? ' marked' : ''}${dateStr === now ? ' today' : ''}" data-date="${dateStr}">
+      <span class="plan-cell-num">${day}</span>
+      <span class="plan-dots">${dots}</span>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // Résumé du mois : objectifs calculés par catégorie peinte
+  const rows = cats
+    .map(cat => ({ cat, n: planCountInMonth(cat.id, currentYear, currentMonth), r: state.plan.rates[cat.id] || 0 }))
+    .filter(x => x.n > 0);
+  const totalPlanned = rows.reduce((s, x) => s + x.n * x.r, 0);
+
+  html += `<div class="plan-summary">
+    <div class="plan-summary-title">${MONTHS[currentMonth]} ${currentYear}</div>`;
+  if (!rows.length) {
+    html += `<div class="plan-summary-empty">Aucun jour peint ce mois-ci.</div>`;
+  }
+  for (const { cat, n, r } of rows) {
+    html += `<div class="plan-summary-row">
+      <span class="goal-dot" style="background:${cat.color}"></span>
+      <span class="plan-summary-name">${cat.label}</span>
+      <span class="plan-summary-calc">${n} j${r > 0 ? ` × ${fmtCompact(r)}` : ''}</span>
+      <span class="plan-summary-amount">${r > 0 ? fmtEUR(Math.round(n * r * 100) / 100) : 'pas de tarif'}</span>
+    </div>`;
+  }
+  if (totalPlanned > 0) {
+    html += `<div class="plan-summary-total"><span>Total planifié</span><span>${fmtEUR(Math.round(totalPlanned * 100) / 100)}</span></div>`;
+  }
+  html += `</div></div>`;
+
+  container.innerHTML = html;
+  wirePlanning(container);
+}
+
+function wirePlanning(container) {
+  $('plan-prev').addEventListener('click', prevMonth);
+  $('plan-next').addEventListener('click', nextMonth);
+
+  container.querySelectorAll('.plan-chip').forEach(btn => {
+    btn.addEventListener('click', () => { planActiveCat = btn.dataset.cat; renderPlanning(); });
+  });
+
+  const rateInput = $('plan-rate-input');
+  rateInput.addEventListener('keydown', e => { if (e.key === 'Enter') rateInput.blur(); });
+  rateInput.addEventListener('blur', () => savePlanRate(planActiveCat, rateInput.value));
+
+  const grid = $('plan-grid');
+  grid.addEventListener('pointerdown', e => {
+    const cell = e.target.closest('.plan-cell[data-date]');
+    if (!cell) return;
+    e.preventDefault();
+    planPaint = { on: !planHasDay(planActiveCat, cell.dataset.date), touched: new Set(), add: [], remove: [] };
+    paintPlanCell(cell);
+  });
+  // elementFromPoint plutôt que e.target : au toucher, les pointermove restent
+  // capturés par la cellule d'origine (capture implicite des pointer events)
+  grid.addEventListener('pointermove', e => {
+    if (!planPaint) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el && el.closest('.plan-cell[data-date]');
+    if (cell) paintPlanCell(cell);
+  });
+}
+
+function paintPlanCell(cell) {
+  const dateStr = cell.dataset.date;
+  if (planPaint.touched.has(dateStr)) return;
+  planPaint.touched.add(dateStr);
+  if (planHasDay(planActiveCat, dateStr) === planPaint.on) return;
+  setPlanDayLocal(planActiveCat, dateStr, planPaint.on);
+  (planPaint.on ? planPaint.add : planPaint.remove).push({ category: planActiveCat, date: dateStr });
+  cell.classList.toggle('marked', planPaint.on);
+}
+
+async function endPlanPaint() {
+  if (!planPaint) return;
+  const { add, remove } = planPaint;
+  planPaint = null;
+  if (!add.length && !remove.length) return;
+  try {
+    await PlanDB.saveDays(add, remove);
+    cachePlan();
+  } catch {
+    for (const { category, date } of add)    setPlanDayLocal(category, date, false);
+    for (const { category, date } of remove) setPlanDayLocal(category, date, true);
+    showToast('Erreur de sauvegarde du planning');
+  }
+  if (state.view === 'planning') renderPlanning();
+}
+
+async function savePlanRate(catId, raw) {
+  const rate = parseAmount(raw);
+  const prev = state.plan.rates[catId] || 0;
+  if (rate === prev) return;
+  if (rate > 0) state.plan.rates[catId] = rate;
+  else delete state.plan.rates[catId];
+  try {
+    await PlanDB.saveRate(catId, rate > 0 ? rate : null);
+    cachePlan();
+    showToast(rate > 0 ? `Tarif ${getCat(catId).label} : ${fmtEUR(rate)}/jour` : 'Tarif supprimé');
+  } catch {
+    if (prev > 0) state.plan.rates[catId] = prev;
+    else delete state.plan.rates[catId];
+    showToast('Erreur de sauvegarde du tarif');
+  }
+  if (state.view === 'planning') renderPlanning();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Vue Catégories
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1628,7 +1869,7 @@ function renderCategories() {
   let html = `
     <div class="cat-mgmt-header">
       <h2 class="cat-mgmt-title">Catégories</h2>
-      <p class="cat-mgmt-subtitle">Gérez les catégories disponibles. Les catégories système (objectifs) et celles utilisées par des opérations existantes ne peuvent pas être supprimées.</p>
+      <p class="cat-mgmt-subtitle">Gérez les catégories disponibles. Les catégories système, celles utilisées par des opérations et celles présentes dans le planning ne peuvent pas être supprimées.</p>
     </div>
     <div class="cat-add-form">
       <input type="text" id="new-cat-label" placeholder="Nom de la catégorie…" class="cat-add-input" />
@@ -1641,10 +1882,13 @@ function renderCategories() {
     <div class="cat-list-mgmt">`;
 
   CATEGORIES.forEach(cat => {
-    const isGoalCat  = GOAL_CATEGORIES.includes(cat.id);
+    const isSystem   = cat.id === DEFAULT_CATEGORY || cat.id === INCOME_CATEGORY;
     const usedCount  = state.expenses.filter(e => e.category === cat.id).length;
-    const canDelete  = !isGoalCat && usedCount === 0;
-    const delTitle   = isGoalCat ? 'Catégorie système (objectifs)' : (usedCount > 0 ? `${usedCount} opération(s) liée(s)` : 'Supprimer');
+    const inPlan     = planDates(cat.id).length > 0 || state.plan.rates[cat.id] > 0;
+    const canDelete  = !isSystem && !inPlan && usedCount === 0;
+    const delTitle   = isSystem ? 'Catégorie système'
+      : inPlan ? 'Utilisée dans le planning'
+      : (usedCount > 0 ? `${usedCount} opération(s) liée(s)` : 'Supprimer');
 
     html += `
       <div class="cat-mgmt-item" data-id="${cat.id}">
@@ -1733,6 +1977,7 @@ async function updateCatColor(id, color) {
   }
   if (state.view === 'calendar') renderCalendar();
   if (state.view === 'goals')    renderGoals();
+  if (state.view === 'planning') renderPlanning();
 }
 
 async function updateCatLabel(id, label) {
@@ -2041,7 +2286,7 @@ function wireStatsNav() {
 
 function setView(view) {
   state.view = view;
-  ['calendar', 'stats', 'recurring', 'goals', 'categories'].forEach(v => {
+  ['calendar', 'stats', 'recurring', 'goals', 'planning', 'categories'].forEach(v => {
     $(`view-${v}`).classList.toggle('hidden', view !== v);
     $(`btn-view-${v}`).classList.toggle('active', view === v);
     $(`btn-view-${v}`).setAttribute('aria-selected', view === v);
@@ -2050,6 +2295,7 @@ function setView(view) {
   if (view === 'stats') renderStats();
   if (view === 'recurring') renderRecurring();
   if (view === 'goals') renderGoals();
+  if (view === 'planning') renderPlanning();
   if (view === 'categories') renderCategories();
 }
 
@@ -2057,16 +2303,22 @@ function setView(view) {
 // Navigation mois
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Le calendrier principal et le Planning partagent le mois courant
+function monthNavRefresh() {
+  if (state.view === 'planning') renderPlanning();
+  else closePanel();
+}
+
 function prevMonth() {
   if (state.currentMonth === 0) { state.currentMonth = 11; state.currentYear--; }
   else state.currentMonth--;
-  closePanel();
+  monthNavRefresh();
 }
 
 function nextMonth() {
   if (state.currentMonth === 11) { state.currentMonth = 0; state.currentYear++; }
   else state.currentMonth++;
-  closePanel();
+  monthNavRefresh();
 }
 
 function goToday() {
@@ -2139,7 +2391,12 @@ async function init() {
   $('btn-view-stats').addEventListener('click',       () => setView('stats'));
   $('btn-view-recurring').addEventListener('click',   () => setView('recurring'));
   $('btn-view-goals').addEventListener('click',       () => setView('goals'));
+  $('btn-view-planning').addEventListener('click',    () => setView('planning'));
   $('btn-view-categories').addEventListener('click',  () => setView('categories'));
+
+  // Fin d'un glisser de peinture (Planning) même si le pointeur sort de la grille
+  document.addEventListener('pointerup', endPlanPaint);
+  document.addEventListener('pointercancel', endPlanPaint);
 
   // Aujourd'hui + légende
   $('btn-today').addEventListener('click', goToday);
@@ -2245,12 +2502,15 @@ async function loadAndRender() {
   overlay.classList.remove('hidden');
   state.overrides = OverrideDB.load();
   try {
-    [state.expenses, state.recurring, state.goals] = await Promise.all([DB.load(), RDB.load(), GoalDB.load()]);
+    [state.expenses, state.recurring, state.goals, state.plan] =
+      await Promise.all([DB.load(), RDB.load(), GoalDB.load(), PlanDB.load()]);
+    await seedOwnerPlan();
     // Cache local du dernier chargement réussi → alimente le fallback hors ligne ci-dessous
     if (IS_DEPLOYED) {
       localStorage.setItem(userCacheKey(STORAGE_KEY),   JSON.stringify(state.expenses));
       localStorage.setItem(userCacheKey(RECURRING_KEY), JSON.stringify(state.recurring));
       localStorage.setItem(userCacheKey(GOALS_KEY),     JSON.stringify(state.goals));
+      localStorage.setItem(userCacheKey(PLAN_KEY),      JSON.stringify(state.plan));
     }
   } catch (err) {
     // Token invalide/expiré → on force une reconnexion plutôt que d'afficher un cache
@@ -2267,6 +2527,7 @@ async function loadAndRender() {
     state.expenses  = JSON.parse(localStorage.getItem(userCacheKey(STORAGE_KEY))   || '[]');
     state.recurring = JSON.parse(localStorage.getItem(userCacheKey(RECURRING_KEY)) || '[]');
     state.goals     = JSON.parse(localStorage.getItem(userCacheKey(GOALS_KEY))     || '{}');
+    state.plan      = normalizePlan(JSON.parse(localStorage.getItem(userCacheKey(PLAN_KEY)) || 'null'));
   } finally {
     overlay.classList.add('hidden');
   }

@@ -2238,3 +2238,286 @@ body {
   .day-amount { font-size: 11px; }
   .btn-secondary, .btn-primary, .btn-today, .btn-legend { min-height: 36px; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Vue Planning : calendrier interactif des catégories
+   ───────────────────────────────────────────────────────────────────────────── */
+
+#view-planning {
+  padding: 1.5rem 1.25rem;
+  overflow-y: auto;
+  height: calc(100vh - var(--header-h));
+}
+
+#planning-body { max-width: 1060px; margin: 0 auto; }
+
+.plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
+
+.plan-title {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.plan-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 560px;
+  line-height: 1.45;
+}
+
+.plan-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 0 0 auto;
+}
+
+.plan-month-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  min-width: 140px;
+  text-align: center;
+}
+
+.plan-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* Chips de catégorie */
+.plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.plan-chip:hover { border-color: var(--border); }
+
+.plan-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+  font-weight: 600;
+}
+
+.plan-chip-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+/* Barre tarif */
+.plan-rate-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  font-size: 13px;
+}
+
+.plan-rate-bar label { font-weight: 600; }
+
+#plan-rate-input {
+  width: 90px;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: right;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+}
+
+#plan-rate-input:focus { outline: 2px solid rgba(var(--accent-rgb), 0.35); }
+
+.plan-rate-unit { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+
+.plan-rate-hint { color: var(--text-muted); font-size: 12px; font-style: italic; }
+
+/* Disposition grille + résumé */
+.plan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  align-items: start;
+}
+
+/* Grille du mois */
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.plan-dow {
+  text-align: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0.3rem 0;
+}
+
+.plan-cell {
+  position: relative;
+  min-height: 58px;
+  padding: 0.35rem 0.45rem;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.plan-cell.empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.plan-cell:not(.empty):hover { border-color: var(--border); }
+
+.plan-cell.marked {
+  background: color-mix(in srgb, var(--cat-color) 26%, var(--surface));
+  border-color: color-mix(in srgb, var(--cat-color) 55%, var(--border-light));
+}
+
+.plan-cell.today .plan-cell-num {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plan-cell-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.plan-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.plan-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Résumé du mois */
+.plan-summary {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  position: sticky;
+  top: 0;
+}
+
+.plan-summary-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+.plan-summary-empty { font-size: 12.5px; color: var(--text-muted); }
+
+.plan-summary-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 13px;
+}
+
+.plan-summary-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.plan-summary-calc {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.plan-summary-amount {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.plan-summary-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-light);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.plan-summary-total span:last-child { font-family: var(--font-mono); }
+
+/* Carte tarif (vue Objectifs) désormais cliquable → Planning */
+.goal-rate-card { cursor: pointer; }
+.goal-rate-card:hover { border-color: var(--accent); }
+
+@media (max-width: 900px) {
+  .plan-layout { grid-template-columns: 1fr; }
+  .plan-summary { position: static; }
+}
+
+@media (max-width: 700px) {
+  #view-planning { padding: 1rem 0.85rem; }
+  .plan-header { flex-direction: column; }
+  .plan-nav { align-self: center; }
+  .plan-cell { min-height: 48px; padding: 0.25rem 0.3rem; }
+}

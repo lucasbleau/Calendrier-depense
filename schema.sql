@@ -72,5 +72,28 @@ CREATE TABLE IF NOT EXISTS goals (
     ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- Planning : jours « peints » par catégorie (calendrier interactif).
+-- Objectif mensuel auto d'une catégorie = plan_rates.rate × nb de jours peints dans le mois.
+CREATE TABLE IF NOT EXISTS plan_days (
+  user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category  TEXT NOT NULL,
+  date      TEXT NOT NULL, -- YYYY-MM-DD
+  PRIMARY KEY (user_id, category, date),
+  CONSTRAINT fk_plan_days_category
+    FOREIGN KEY (user_id, category) REFERENCES categories(user_id, id)
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS plan_rates (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category   TEXT NOT NULL,
+  rate       NUMERIC(10, 2) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, category),
+  CONSTRAINT fk_plan_rates_category
+    FOREIGN KEY (user_id, category) REFERENCES categories(user_id, id)
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 -- Les catégories par défaut sont seedées par l'API à l'inscription de chaque
 -- utilisateur (cf. DEFAULT_CATEGORIES dans api/_lib.js).

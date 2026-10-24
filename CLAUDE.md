@@ -42,7 +42,7 @@ Deux modes complémentaires :
 - Défauts : Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre
 - Chaque catégorie : `id` (slug généré), `label`, `color` (hex)
 - Persistance : `localStorage` clé `expense-calendar-categories-v1` (config utilisateur, pas sync serveur)
-- Suppression impossible si catégorie utilisée par des opérations, présente dans le Planning (jours ou tarif), ou système (`autre`, `revenus`)
+- Suppression impossible si catégorie utilisée par des opérations, parente de sous-catégories, ou système (`autre`, `revenus`)
 
 ### Vue Statistiques
 
@@ -64,9 +64,7 @@ Deux modes complémentaires :
 ### Vue Objectifs
 
 - Tableau annuel (12 mois × toutes catégories de dépenses) avec colonne Total
-- **Objectif « effectif » d'une catégorie feuille** (`getGoalForMonth`, réglé selon `catMode`) :
-  - **« au jour »** (`mode: 'jour'`) : plafond dynamique (`getDynamicGoal`) = tarif effectif du mois (base ou surcharge) × jours peints dans le Planning. Carte de réglage cliquable renvoyant vers Planning. Pas de repli sur les récurrences.
-  - **« au mois »** (`mode: 'mois'`, défaut) : **objectif auto = somme des récurrences du mois** (`recurExpected`) ; une **valeur manuelle** (✏, `state.goals`) **remplace tout** (même si inférieure aux récurrences — plus de `max()`). La carte affiche le montant auto avec un tag « auto » quand aucun manuel n'est fixé.
+- **Objectif « effectif » d'une catégorie feuille** (`getGoalForMonth`) : **objectif auto = somme des récurrences du mois** (`recurExpected`) ; une **valeur manuelle** (✏, `state.goals`) **remplace tout** (même si inférieure aux récurrences). La carte affiche le montant auto avec un tag « auto » quand aucun manuel n'est fixé.
 - **Logique d'affichage par cellule** (`catFigures`) : réel = dépenses saisies + récurrences restantes (`recurRemaining`) ; dénominateur = objectif effectif (`getGoalForMonth`). Colorisation : vert < 80 % du dénominateur, orange 80–100 %, rouge ≥ 100 %.
 - **Colonne Total** : `réel / planifié` où planifié = Σ objectifs effectifs par catégorie
   - Barre de progression colorée
@@ -75,27 +73,18 @@ Deux modes complémentaires :
 - **Regroupement par sous-catégories** : les colonnes du tableau et la liste « mois en avant » sont par catégorie de **premier niveau** (`tableCats = topLevelExpenseCats()`), agrégées via `groupFigures` (somme d'elle-même + de ses sous-catégories, chacune avec ses dépenses et son objectif effectif). Dans « mois en avant », un parent est **dépliable** (caret, `state.goalsExpanded`) pour voir le détail de ses sous-catégories. Les cartes de réglage restent par feuille, préfixées « Parent › Enfant ».
 - **Sous-page Détail** (`renderGoalsDetail`) : puces ordonnées hiérarchiquement (enfants ↳ indentés). Sélectionner un **parent** agrège toute sa famille (`familyIds`) — total et opérations mois par mois, chaque ligne annotée de sa sous-catégorie (badge « total sous-catégories »). Sélectionner une feuille n'affiche qu'elle.
 
-### Vue Planning
+### Vue Planning — retirée (24/10/2026)
 
-- **Seules les catégories « au jour »** (`mode: 'jour'`, réglé dans Catégories) apparaissent ici. Si aucune, un message invite à en marquer une « au jour ».
-- **Calendrier interactif** type réservation : on choisit une catégorie (chips colorées) puis on **peint au glisser** (souris ou tactile, pointer events + `elementFromPoint`) les jours où elle s'applique ; re-glisser sur des jours peints les efface. Plusieurs catégories peuvent couvrir le même jour (points colorés dans les cellules).
-- **Tarif de base** €/j réglé dans l'onglet **Catégories** (`plan_rates`, un par catégorie). La barre au-dessus de la grille affiche le **tarif du mois affiché** : par défaut le tarif de base, surchargeable pour ce mois-là uniquement (bouton **↺ base** pour revenir au tarif de base). Voir `effectiveRate` (surcharge `plan_rate_overrides` sinon base) et `savePlanMonthRate` / `resetPlanMonthRate`.
-- Objectif mensuel auto = `tarif effectif du mois × jours peints`, consommé par la vue Objectifs via `getDynamicGoal`. Sans tarif : les jours sont mémorisés mais aucun objectif calculé.
-- **Résumé latéral** du mois : `n j × tarif = montant` par catégorie peinte + total planifié.
-- Navigation mois partagée avec le calendrier principal (`state.currentMonth/Year`, flèches clavier actives).
-- Un glisser = un batch : les jours ajoutés/retirés sont envoyés en une seule requête `POST /api/plan` au relâchement (rollback local + toast si échec).
-- Aucun seed automatique : chaque compte part d'un planning vide et le remplit à la main (le seed initial « budgets ville » de l'owner a été retiré).
+Page supprimée du front lors de la simplification (avec le mode « au jour » et le tarif €/j des catégories). Back-end (`api/plan.js`, tables `plan_*`) et données conservés. Description complète et procédure de restauration : **`ETAT-PROJET.md` §4** (dernier commit avec la page : `361488e`).
 
 ### Vue Catégories
 
 - Liste toutes les catégories avec swatch couleur + label éditable inline
 - **Modifier la couleur** : clic sur le rond → color picker natif (mise à jour en live)
 - **Modifier le nom** : clic sur le texte, édition directe, confirmation au blur ou Entrée
-- **Type d'objectif** (`catMode`) : sélecteur segmenté par catégorie **Au mois** / **Au jour** (`updateCatMode`, champ `mode` persisté). « Au jour » fait apparaître la catégorie dans le Planning ; « au mois » = objectif fixe. Défaut `mois`. Pas de sélecteur sur la catégorie Revenus.
-- **Tarif de base €/j** (`savePlanBaseRate` → `plan_rates`) : champ inline affiché sur la ligne quand la catégorie est « au jour ». C'est le tarif proposé par défaut à chaque mois dans le Planning (surchargeable par mois là-bas).
 - **Sous-catégories** (hiérarchie 2 niveaux, champ `parent`, `updateCatParent`) : menu « Parent » par catégorie pour la rattacher à une catégorie de premier niveau. Affichage hiérarchique (enfants indentés ↳ sous leur parent). Une catégorie ayant des enfants devient un **groupe** (badge « groupe · Σ ») : pas de config d'objectif propre, elle agrège ses sous-catégories (+ ses dépenses directes) dans Objectifs et Stats. Un parent n'est pas supprimable tant qu'il a des enfants (helpers `childrenOf`, `isParent`, `topLevelExpenseCats`, `familyIds`).
-- **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter` (nouvelle catégorie créée en `mode: 'mois'`)
-- **Supprimer** : ✕ actif uniquement si catégorie non système, non utilisée par des opérations et non présente dans le planning (jours/tarif d'une catégorie « au jour »)
+- **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter`
+- **Supprimer** : ✕ actif uniquement si catégorie non système, sans sous-catégorie et non utilisée par des opérations (modal de confirmation)
 - Modifications propagées instantanément aux dropdowns des modals
 
 ### Authentification (multi-utilisateurs)
@@ -106,7 +95,7 @@ Deux modes complémentaires :
 - **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), username en `USER_KEY`. Envoyé via `x-auth-token`.
 - **Isolation des données (critique)** : `withDb` (`api/_lib.js`) extrait l'`user_id` du token vérifié et le passe à chaque route. **Toutes** les requêtes sont filtrées par `user_id` (WHERE + INSERT + `UPDATE/DELETE … WHERE id=$ AND user_id=$`). L'`user_id` ne vient jamais du body/query. Un utilisateur ne peut ni lire ni modifier les données d'un autre, même en forgeant un id.
 - **Catégories par compte** : isolées par `user_id` (PK composite `(user_id, id)`). À l'inscription, seules **2 catégories structurelles** sont seedées (`Revenus`, `Autre`) — les nouveaux comptes partent neutres et créent les leurs.
-- **Aucun compte privilégié** : tous les comptes sont équivalents (plafonds dynamiques via Planning, objectifs manuels, catégories). Il n'y a plus de compte « propriétaire » ni de config personnelle hardcodée.
+- **Aucun compte privilégié** : tous les comptes sont équivalents (objectifs auto/manuels, catégories). Il n'y a plus de compte « propriétaire » ni de config personnelle hardcodée.
 - **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:username`) pour éviter toute fuite inter-comptes sur un appareil partagé.
 - **Déconnexion** : bouton header → vide `sessionStorage` et recharge.
 - En local (`file://` ou `localhost`) : aucune auth, mono-utilisateur localStorage, overlay jamais affiché.
@@ -166,7 +155,7 @@ type Category = {
   id: string;            // slug généré depuis le label
   label: string;
   color: string;         // couleur hex
-  mode?: 'mois' | 'jour'; // objectif fixe mensuel (défaut) ou tarif €/j via Planning
+  mode?: 'mois' | 'jour'; // hérité du Planning (retiré) — persisté mais ignoré par le front
   parent?: string;        // id de la catégorie parent si sous-catégorie (2 niveaux max)
 };
 
@@ -194,7 +183,7 @@ type Plan = {
 | `expense-calendar-data-v1` | `Expense[]` |
 | `expense-calendar-recurring-v1` | `RecurringTask[]` |
 | `expense-calendar-goals-v1` | `Goals` |
-| `expense-calendar-plan-v1` | `Plan` (jours peints + tarifs de la vue Planning) |
+| `expense-calendar-plan-v1` | `Plan` (vue Planning retirée — clé plus lue) |
 | `expense-calendar-categories-v1` | `Category[]` (si modifié, sinon défauts hardcodés) |
 | `expense-calendar-auth-v1` | Token d'auth signé (sessionStorage) |
 | `expense-calendar-user-v1` | Username du compte connecté (sessionStorage) |
@@ -230,7 +219,7 @@ expenses        — id (PK), user_id, date, label, amount, type, category, recur
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
 goals           — (user_id, category) PK, amount, updated_at
 categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), parent (FK self, SET NULL), created_at
-plan_days       — (user_id, category, date) PK — jours peints (vue Planning), FK categories CASCADE
+plan_days       — (user_id, category, date) PK — jours peints (vue Planning, retirée — table conservée), FK categories CASCADE
 plan_rates      — (user_id, category) PK, rate, updated_at — tarif de base €/jour, FK categories CASCADE
 plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif surchargé pour un mois, FK categories CASCADE
 ```

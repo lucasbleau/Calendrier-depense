@@ -116,3 +116,13 @@ CREATE TABLE IF NOT EXISTS plan_rate_overrides (
 
 -- Les catégories par défaut sont seedées par l'API à l'inscription de chaque
 -- utilisateur (cf. DEFAULT_CATEGORIES dans api/_lib.js).
+
+-- Montant d'une récurrence modifié pour un mois précis (aussi créé par api/recurring.js au cold start)
+CREATE TABLE IF NOT EXISTS recurring_overrides (
+  user_id    TEXT           NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recur_id   TEXT           NOT NULL REFERENCES recurring_tasks(id) ON DELETE CASCADE,
+  ym         TEXT           NOT NULL,
+  amount     NUMERIC(10, 2) NOT NULL,
+  updated_at TIMESTAMPTZ    DEFAULT NOW(),
+  PRIMARY KEY (user_id, recur_id, ym)
+);

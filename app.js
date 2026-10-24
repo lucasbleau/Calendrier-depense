@@ -141,14 +141,24 @@ const GoalDB = {
   remove: (category)         => goalsStore.send('DELETE', { query: `?category=${encodeURIComponent(category)}` }),
 };
 
-// Overrides toujours en localStorage (préférence UI par appareil, pas de données financières critiques)
+// Montants d'une récurrence modifiés pour un mois précis : [{ recurId, yearMonth, amount }]
+const overridesStore = makeStore({
+  endpoint:   '/api/recurring',
+  readLocal:  () => { try { return JSON.parse(localStorage.getItem(OVERRIDES_KEY) || '[]'); } catch { return []; } },
+  writeLocal: () => localStorage.setItem(OVERRIDES_KEY, JSON.stringify(state.overrides)),
+});
 const OverrideDB = {
-  load() {
-    try { return JSON.parse(localStorage.getItem(OVERRIDES_KEY) || '[]'); } catch { return []; }
+  async load() {
+    if (!IS_DEPLOYED) return overridesStore.load();
+    const res = await apiFetch('/api/recurring?overrides=1');
+    if (!res.ok) { const e = new Error('Chargement des montants mensuels échoué'); e.status = res.status; throw e; }
+    return res.json();
   },
-  save(overrides) {
-    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
-  },
+  // amount === null → retire la modification (retour au montant de base)
+  save: (recurId, yearMonth, amount) => overridesStore.send('POST', { body: amount === null
+    ? { action: 'overrides', remove: [{ recurId, yearMonth }] }
+    : { action: 'overrides', set: [{ recurId, yearMonth, amount }] } }),
+  importMissing: (items) => overridesStore.send('POST', { body: { action: 'overrides', set: items, onlyMissing: true } }),
 };
 
 const categoriesStore = makeStore({
@@ -219,16 +229,52 @@ function getOverride(recurId, ym) {
   return state.overrides.find(o => o.recurId === recurId && o.yearMonth === ym);
 }
 
+// Mise à jour optimiste : l'appelant rerend tout de suite ; en cas d'échec
+// serveur, on restaure l'état précédent et on rerend.
 function setRecurOverride(recurId, ym, amount) {
+  const snapshot = state.overrides;
   state.overrides = state.overrides.filter(o => !(o.recurId === recurId && o.yearMonth === ym));
+  let stored = null;
   if (amount !== null) {
     const task = state.recurring.find(t => t.id === recurId);
     // Stocker même si égal à la base (0 = override explicite "pas ce mois")
     if (task && (amount !== task.amount || amount === 0)) {
       state.overrides.push({ recurId, yearMonth: ym, amount });
+      stored = amount;
     }
   }
-  OverrideDB.save(state.overrides);
+  OverrideDB.save(recurId, ym, stored)
+    .then(cacheOverrides)
+    .catch(() => {
+      state.overrides = snapshot;
+      showToast('Erreur de sauvegarde du montant');
+      renderCalendar();
+      renderDayPanel();
+    });
+}
+
+function cacheOverrides() {
+  if (IS_DEPLOYED) localStorage.setItem(userCacheKey(OVERRIDES_KEY), JSON.stringify(state.overrides));
+}
+
+// Reprise unique des montants autrefois stockés sur l'appareil (clé non suffixée) :
+// envoyés au serveur sans écraser l'existant, puis la clé locale est supprimée.
+// Les récurrences inconnues de ce compte sont ignorées (serveur et client).
+async function migrateLegacyOverrides() {
+  if (!IS_DEPLOYED) return;
+  let legacy;
+  try { legacy = JSON.parse(localStorage.getItem(OVERRIDES_KEY) || '[]'); } catch { legacy = []; }
+  if (!Array.isArray(legacy) || !legacy.length) return;
+  const mine = new Set(state.recurring.map(t => t.id));
+  const has  = new Set(state.overrides.map(o => `${o.recurId}|${o.yearMonth}`));
+  const items = legacy.filter(o => o && mine.has(o.recurId) && /^\d{4}-\d{2}$/.test(o.yearMonth) &&
+    Number.isFinite(o.amount) && o.amount >= 0 && !has.has(`${o.recurId}|${o.yearMonth}`));
+  try {
+    for (let i = 0; i < items.length; i += 500) await OverrideDB.importMissing(items.slice(i, i + 500));
+    state.overrides = state.overrides.concat(items);
+    cacheOverrides();
+    localStorage.removeItem(OVERRIDES_KEY);
+  } catch { /* nouvel essai au prochain chargement */ }
 }
 
 function guessCategory(label) {
@@ -1011,6 +1057,8 @@ async function saveRecurring() {
 async function deleteRecurring(id) {
   const snapshot = [...state.recurring];
   state.recurring = state.recurring.filter(t => t.id !== id);
+  // Montants mensuels supprimés avec elle (ON DELETE CASCADE côté base)
+  state.overrides = state.overrides.filter(o => o.recurId !== id);
   renderRecurring();
   renderCalendar();
 
@@ -2477,15 +2525,20 @@ function logout() {
 async function loadAndRender() {
   const overlay = $('loading-overlay');
   overlay.classList.remove('hidden');
-  state.overrides = OverrideDB.load();
   try {
-    [state.expenses, state.recurring, state.goals] =
-      await Promise.all([DB.load(), RDB.load(), GoalDB.load()]);
+    [state.expenses, state.recurring, state.goals, state.overrides] =
+      await Promise.all([DB.load(), RDB.load(), GoalDB.load(), OverrideDB.load().catch(err => {
+        // Non bloquant : sans les montants mensuels, on garde le dernier cache
+        if (err && err.status === 401) throw err;
+        try { return JSON.parse(localStorage.getItem(userCacheKey(OVERRIDES_KEY)) || '[]'); } catch { return []; }
+      })]);
+    await migrateLegacyOverrides();
     // Cache local du dernier chargement réussi → alimente le fallback hors ligne ci-dessous
     if (IS_DEPLOYED) {
       localStorage.setItem(userCacheKey(STORAGE_KEY),   JSON.stringify(state.expenses));
       localStorage.setItem(userCacheKey(RECURRING_KEY), JSON.stringify(state.recurring));
       localStorage.setItem(userCacheKey(GOALS_KEY),     JSON.stringify(state.goals));
+      cacheOverrides();
     }
   } catch (err) {
     // Token invalide/expiré → on force une reconnexion plutôt que d'afficher un cache
@@ -2502,6 +2555,7 @@ async function loadAndRender() {
     state.expenses  = JSON.parse(localStorage.getItem(userCacheKey(STORAGE_KEY))   || '[]');
     state.recurring = JSON.parse(localStorage.getItem(userCacheKey(RECURRING_KEY)) || '[]');
     state.goals     = JSON.parse(localStorage.getItem(userCacheKey(GOALS_KEY))     || '{}');
+    try { state.overrides = JSON.parse(localStorage.getItem(userCacheKey(OVERRIDES_KEY)) || '[]'); } catch { state.overrides = []; }
   } finally {
     overlay.classList.add('hidden');
   }

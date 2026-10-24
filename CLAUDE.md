@@ -60,6 +60,7 @@ Deux modes complémentaires :
 - **Règle anti-double-comptage** : l'opération créée via `+` garde l'id de sa récurrence (`recurId`, colonne `recur_id` en DB). Une occurrence « réalisée » (opération liée dans le mois, affectée à l'occurrence la plus proche) disparaît des rappels ↺ et des totaux « réels » (`recurRemaining`, `recurMonthTotal`, `getRecurringForDay`). Le « prévu » des Objectifs (`recurExpected`) compte en revanche **toutes** les occurrences — le dénominateur ne bouge pas quand on saisit.
 - **Affichage groupé** par catégorie, trié par montant décroissant dans chaque groupe
 - **Bandeau résumé** en haut à droite : total dépenses/mois, total revenus/mois, solde net
+- **Montant modifié pour un mois** (depuis le panneau jour, `setRecurOverride`) : stocké **en base** (table `recurring_overrides`, `GET /api/recurring?overrides=1`, `POST /api/recurring {action:'overrides', set, remove}`), mise à jour optimiste avec rollback. Anciennement en `localStorage` par appareil : `migrateLegacyOverrides` reprend une fois les valeurs locales (sans écraser la base) puis supprime la clé. Chargement non bloquant (repli sur le cache du compte).
 
 ### Vue Objectifs
 
@@ -232,6 +233,7 @@ categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), parent
 plan_days       — (user_id, category, date) PK — jours peints (vue Planning, retirée — table conservée), FK categories CASCADE
 plan_rates      — (user_id, category) PK, rate, updated_at — tarif de base €/jour, FK categories CASCADE
 plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif surchargé pour un mois, FK categories CASCADE
+recurring_overrides — (user_id, recur_id, ym) PK, amount, updated_at — montant d'une récurrence modifié pour un mois, FK recurring_tasks CASCADE (créée par api/recurring.js au cold start)
 ```
 
 > Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`), `migrate-cat-mode.sql` (colonne `mode` sur `categories`), `migrate-plan-overrides.sql` (table `plan_rate_overrides`) et `migrate-cat-parent.sql` (colonne `parent` + FK auto-référente sur `categories`). La colonne `archived` (`migrate-cat-archive.sql`) est ajoutée automatiquement par `api/categories.js` au cold start (`ensureSchema`).

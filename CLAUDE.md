@@ -22,7 +22,7 @@ Visualiser, saisir et analyser les dépenses et revenus quotidiens via une inter
 - Code couleur d'intensité : la cellule s'assombrit proportionnellement au montant dépensé (max du mois = référence)
 - Mise en évidence du jour courant
 - Clic sur un jour → panneau détail : liste des opérations + section récurrences du jour + bouton ajouter/supprimer
-- Indicateur mensuel en-tête : total dépenses réelles / total objectifs (toutes catégories avec objectif défini)
+- Indicateur mensuel en-tête (bouton → ouvre Objectifs) : « Reste X € » ou « Dépassé de X € » = `monthPlannedTotal − monthGoalReal`, mêmes chiffres que la vue Objectifs (archivées exclues), coloré par `goalClass`. Masqué si aucun objectif ce mois.
 
 ### Saisie des dépenses
 
@@ -48,10 +48,12 @@ Deux modes complémentaires :
 
 ### Vue Statistiques
 
-- KPI mois courant : total dépenses, total revenus, solde, comparaison % vs mois précédent
-- KPI année : total dépenses, total revenus, solde annuel
-- Bar chart 12 mois (dépenses/revenus de l'année courante)
-- Donut de répartition par catégorie + liste détaillée avec pourcentages, **regroupée par catégorie de premier niveau** (un parent agrège ses sous-catégories) ; chaque parent est **dépliable** (`state.statsExpanded`) pour voir ses sous-catégories + la part « directe » du parent (`statsRankHtml`)
+Simplifiée le 24/10/2026 (donut et courbe du solde retirés).
+
+- Navigation par année (`state.currentYear`). **Seuls les mois écoulés + le mois en cours sont comptés** (`statsLastMonth`) : les récurrences des mois à venir ne gonflent plus les totaux.
+- 3 KPI : Dépenses (+ moyenne mensuelle sur les mois actifs), Revenus, Solde (+ période couverte)
+- Bar chart 12 mois dépenses/revenus (mois à venir vides)
+- Classement pleine largeur de **toutes** les catégories avec montant et %, **regroupé par catégorie de premier niveau** (un parent agrège ses sous-catégories) ; chaque parent est **dépliable** (`state.statsExpanded`) pour voir ses sous-catégories + la part « directe » du parent (`statsRankHtml`)
 
 ### Vue Récurrences
 

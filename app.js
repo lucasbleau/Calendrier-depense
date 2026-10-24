@@ -685,6 +685,14 @@ function topGoalForMonth(catId, year, month) {
   return sum > 0 ? sum : null;
 }
 
+// Réel d'un mois au sens Objectifs : dépenses saisies + récurrences restantes,
+// catégories archivées exclues (y compris comme sous-catégories)
+function monthGoalReal(year, month) {
+  return topLevelExpenseCats()
+    .filter(c => !c.archived)
+    .reduce((s, c) => s + (isParent(c.id) ? goalGroupFigures(c.id, year, month) : goalCatFigures(c.id, year, month)).total, 0);
+}
+
 // Total prévu d'un mois (catégories archivées exclues)
 function monthPlannedTotal(year, month) {
   return topLevelExpenseCats()
@@ -724,13 +732,16 @@ function renderCalendar() {
 
   const monthData = getMonthData(currentYear, currentMonth);
 
+  // Indicateur : reste à dépenser du mois, mêmes chiffres que la vue Objectifs
   const goalIndicator = $('month-goal-indicator');
   if (goalIndicator) {
-    const { spent: totalSpent, earned: totalEarned } = monthRealTotals(currentYear, currentMonth);
-    const totalPlanned = monthPlannedTotal(currentYear, currentMonth);
-    if (totalSpent > 0 || totalEarned > 0) {
-      goalIndicator.textContent = `${fmtEUR(totalSpent)} / +${fmtEUR(totalEarned)}`;
-      goalIndicator.className = `month-goal-indicator ${goalClass(totalSpent, totalPlanned)}`;
+    const real    = monthGoalReal(currentYear, currentMonth);
+    const planned = monthPlannedTotal(currentYear, currentMonth);
+    if (planned > 0) {
+      const diff = planned - real;
+      goalIndicator.textContent = diff >= 0 ? `Reste ${fmtEUR(diff)}` : `Dépassé de ${fmtEUR(-diff)}`;
+      goalIndicator.title = `Objectifs du mois : ${fmtEUR(real)} sur ${fmtEUR(planned)} prévus — ouvrir Objectifs`;
+      goalIndicator.className = `month-goal-indicator ${goalClass(real, planned)}`;
     } else {
       goalIndicator.className = 'month-goal-indicator hidden';
     }
@@ -1515,7 +1526,7 @@ function renderGoals() {
     const isGroup = isParent(cat.id);
     return { cat, isGroup, f: figs(cat, isGroup) };
   });
-  const real    = tops.reduce((s, t) => s + t.f.total, 0);
+  const real    = monthGoalReal(year, month);
   const planned = monthPlannedTotal(year, month);
   const totalCls = goalClass(real, planned);
   const pct  = planned > 0 ? Math.round(real / planned * 100) : null;
@@ -2211,9 +2222,16 @@ function renderSearchResults() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Totaux mensuels réels (saisies + récurrences) pour une année — même règle que le calendrier
+// Dernier mois (0-11) pris en compte par les Statistiques : les mois à venir
+// sont exclus (sinon leurs récurrences gonfleraient les totaux). -1 = aucun.
+function statsLastMonth(year) {
+  const y = today.getFullYear();
+  return year < y ? 11 : year > y ? -1 : today.getMonth();
+}
+
 function yearMonthlyTotals(year) {
   const dep = Array(12).fill(0), rev = Array(12).fill(0);
-  for (let m = 0; m < 12; m++) {
+  for (let m = 0; m <= statsLastMonth(year); m++) {
     const { spent, earned } = monthRealTotals(year, m);
     dep[m] = spent;
     rev[m] = earned;
@@ -2224,7 +2242,7 @@ function yearMonthlyTotals(year) {
 // Totaux de dépenses par catégorie pour une année (saisies + récurrences), comme la vue Objectifs
 function yearCategoryTotals(year) {
   const map = {};
-  for (let m = 0; m < 12; m++) {
+  for (let m = 0; m <= statsLastMonth(year); m++) {
     for (const e of getMonthData(year, m)) {
       if (e.type !== 'depense') continue;
       map[e.category] = (map[e.category] || 0) + e.amount;
@@ -2260,49 +2278,6 @@ function svgGroupedBars(dep, rev) {
   return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Dépenses et revenus par mois">${s}</svg>`;
 }
 
-// Courbe du solde net mensuel (peut être négatif)
-function svgLineChart(values) {
-  const W = 720, H = 220, padX = 8, padT = 16, padB = 26;
-  const innerW = W - padX * 2, innerH = H - padT - padB;
-  const max = Math.max(1, ...values.map(v => Math.abs(v)));
-  const zeroY = padT + innerH / 2;
-  const scale = (innerH / 2) / max;
-  const pts = values.map((v, m) => [padX + (m / 11) * innerW, zeroY - v * scale]);
-  const poly = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  const dots = pts.map((p, m) =>
-    `<circle class="${values[m] >= 0 ? 'dot-pos' : 'dot-neg'}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.2"><title>${MONTHS_SHORT[m]} — solde ${fmtEUR(values[m])}</title></circle>`
-  ).join('');
-  const labels = MONTHS_SHORT.map((mm, m) =>
-    `<text class="chart-axis" x="${(padX + (m / 11) * innerW).toFixed(1)}" y="${H - 9}" text-anchor="middle">${mm}</text>`
-  ).join('');
-  return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution du solde net">
-    <line class="chart-zero" x1="${padX}" y1="${zeroY}" x2="${W - padX}" y2="${zeroY}"/>
-    <polyline class="chart-soldeline" points="${poly}"/>
-    ${dots}${labels}
-  </svg>`;
-}
-
-// Donut de répartition (slices: {label,color,value})
-function svgDonut(slices, total) {
-  const size = 188, r = 70, cx = size / 2, cy = size / 2, sw = 26;
-  const C = 2 * Math.PI * r;
-  let segs = '', off = 0;
-  if (total > 0) {
-    for (const sl of slices) {
-      const len = (sl.value / total) * C;
-      segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${sl.color}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${sl.label} — ${fmtEUR(sl.value)} (${Math.round(sl.value / total * 100)}%)</title></circle>`;
-      off += len;
-    }
-  } else {
-    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border-light)" stroke-width="${sw}"/>`;
-  }
-  return `<svg class="donut-svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="Répartition des dépenses par catégorie">
-    ${segs}
-    <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="donut-center-val">${fmtCompact(total)}</text>
-    <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">dépenses</text>
-  </svg>`;
-}
-
 function renderStats() {
   const container = $('stats-body');
   const year = state.currentYear;
@@ -2312,7 +2287,6 @@ function renderStats() {
   const solde = totalRev - totalDep;
   const activeMonths = dep.filter((d, i) => d > 0 || rev[i] > 0).length || 1;
   const avgDep = totalDep / activeMonths;
-  const soldeSeries = dep.map((d, m) => rev[m] - d);
 
   // Totaux par catégorie, regroupés par catégorie de premier niveau (un parent
   // agrège ses sous-catégories + ses dépenses directes).
@@ -2333,8 +2307,10 @@ function renderStats() {
     .sort((a, b) => b.value - a.value);
   const maxCat = slices.length ? slices[0].value : 0;
 
-  const kpi = (label, value, cls) =>
-    `<div class="stat-kpi"><span class="stat-kpi-label">${label}</span><span class="stat-kpi-value ${cls || ''}">${value}</span></div>`;
+  const kpi = (label, value, cls, sub) =>
+    `<div class="stat-kpi"><span class="stat-kpi-label">${label}</span><span class="stat-kpi-value ${cls || ''}">${value}</span>${sub ? `<span class="stat-kpi-sub">${sub}</span>` : ''}</div>`;
+  const lastM  = statsLastMonth(year);
+  const period = lastM < 0 ? 'année à venir' : lastM === 11 ? 'année complète' : `janvier → ${MONTHS[lastM].toLowerCase()}`;
 
   let html = `
     <div class="stats-head">
@@ -2347,10 +2323,9 @@ function renderStats() {
     </div>
 
     <div class="stats-kpis">
-      ${kpi('Dépenses', fmtEUR(totalDep), 'depense-color')}
+      ${kpi('Dépenses', fmtEUR(totalDep), 'depense-color', `moy. ${fmtEUR(avgDep)} / mois`)}
       ${kpi('Revenus', fmtEUR(totalRev), 'revenu-color')}
-      ${kpi('Solde', (solde >= 0 ? '+' : '') + fmtEUR(solde), solde >= 0 ? 'revenu-color' : 'depense-color')}
-      ${kpi('Dépense moy. / mois', fmtEUR(avgDep))}
+      ${kpi('Solde', (solde >= 0 ? '+' : '') + fmtEUR(solde), solde >= 0 ? 'revenu-color' : 'depense-color', period)}
     </div>`;
 
   if (totalDep === 0 && totalRev === 0) {
@@ -2372,21 +2347,11 @@ function renderStats() {
       ${svgGroupedBars(dep, rev)}
     </div>
 
-    <div class="stats-row">
-      <div class="chart-card">
-        <h3 class="chart-card-title">Répartition par catégorie</h3>
-        <div class="donut-layout">
-          ${svgDonut(slices, totalDep)}
-          <ul class="cat-rank">
-            ${slices.length ? statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) : '<li class="cat-rank-empty">Aucune dépense</li>'}
-          </ul>
-        </div>
-      </div>
-
-      <div class="chart-card">
-        <h3 class="chart-card-title">Solde net mensuel</h3>
-        ${svgLineChart(soldeSeries)}
-      </div>
+    <div class="chart-card">
+      <h3 class="chart-card-title">Dépenses par catégorie</h3>
+      <ul class="cat-rank">
+        ${slices.length ? statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) : '<li class="cat-rank-empty">Aucune dépense</li>'}
+      </ul>
     </div>`;
 
   container.innerHTML = html;
@@ -2412,7 +2377,7 @@ function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) {
   };
 
   let out = '';
-  for (const s of slices.slice(0, 8)) {
+  for (const s of slices) {
     const kids = groupKids[s.id];
     const hasKids = kids && kids.length > 0;
     out += rankRow(s.id, s.label, s.color, s.value, false, hasKids);
@@ -2557,6 +2522,7 @@ async function init() {
 
   // Aujourd'hui + légende
   $('btn-today').addEventListener('click', goToday);
+  $('month-goal-indicator').addEventListener('click', () => setView('goals'));
   $('btn-legend').addEventListener('click', () => {
     const leg = $('calendar-legend');
     const hidden = leg.classList.toggle('hidden');

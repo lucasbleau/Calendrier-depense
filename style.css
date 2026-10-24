@@ -1182,7 +1182,10 @@ body {
   border-radius: var(--radius-sm);
   border: 1px solid;
   white-space: nowrap;
+  background: transparent;
+  cursor: pointer;
 }
+.month-goal-indicator:hover { filter: brightness(0.96); }
 .month-goal-indicator.ok   { color: var(--revenu);  border-color: var(--revenu-faint);  background: var(--revenu-faint); }
 .month-goal-indicator.warn { color: var(--warn);         border-color: var(--warn-faint);              background: var(--warn-faint); }
 .month-goal-indicator.over { color: var(--depense);  border-color: var(--depense-faint); background: var(--depense-faint); }
@@ -1852,7 +1855,7 @@ body {
 
 .stats-kpis {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.75rem;
   margin-bottom: 1rem;
 }
@@ -1879,6 +1882,7 @@ body {
   color: var(--text);
   line-height: 1.15;
 }
+.stat-kpi-sub { font-size: 11px; color: var(--text-3); }
 
 .stats-empty {
   text-align: center;
@@ -1917,37 +1921,22 @@ body {
 .bar-dep-sw { background: var(--depense); }
 .bar-rev-sw { background: var(--revenu); }
 
-.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: stretch; }
-.stats-row .chart-card { margin-bottom: 0; display: flex; flex-direction: column; }
-/* Centre verticalement le contenu (donut/courbe) sur la hauteur commune */
-.stats-row .chart-card .chart-svg,
-.stats-row .chart-card .donut-layout { margin-top: auto; margin-bottom: auto; }
-
 /* SVG charts */
 .chart-svg { width: 100%; height: auto; display: block; }
 .bar-dep { fill: var(--depense); }
 .bar-rev { fill: var(--revenu); }
 .chart-base { stroke: var(--border); stroke-width: 1; }
 .chart-axis { fill: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
-.chart-zero { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
-.chart-soldeline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.dot-pos { fill: var(--revenu); }
-.dot-neg { fill: var(--depense); }
 
-/* Donut + classement */
-.donut-layout { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
-.donut-svg { width: 170px; height: 170px; flex-shrink: 0; }
-.donut-center-val { fill: var(--text); font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
-.donut-center-lbl { fill: var(--text-3); font-family: var(--font-body); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; }
-
-.cat-rank { flex: 1; min-width: 180px; list-style: none; display: flex; flex-direction: column; gap: 0.45rem; }
+/* Classement des catégories */
+.cat-rank { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
 .cat-rank-item {
   display: grid;
-  grid-template-columns: 16px 8px 1fr 60px auto auto;
+  grid-template-columns: 16px 8px minmax(120px, 220px) 1fr auto auto;
   align-items: center;
   gap: 0.5rem;
 }
-.cat-rank-name { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-rank-name { font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-rank-bar { height: 6px; background: var(--border-light); border-radius: 99px; overflow: hidden; }
 .cat-rank-bar span { display: block; height: 100%; border-radius: 99px; }
 .cat-rank-val { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); white-space: nowrap; text-align: right; }
@@ -1967,12 +1956,11 @@ body {
 }
 
 @media (max-width: 700px) {
-  .stats-row { grid-template-columns: 1fr; }
-  .stats-kpis { grid-template-columns: 1fr 1fr; }
+  .stats-kpis { grid-template-columns: 1fr; }
+  .cat-rank-item { grid-template-columns: 16px 8px 1fr 60px auto auto; }
   #view-stats { padding: 1rem 0.85rem 2rem; }
   .search-filters { grid-template-columns: 1fr 1fr; }
   .search-filters #search-text { grid-column: 1 / -1; }
-  .donut-layout { justify-content: center; }
   .calendar-legend { right: auto; left: 0; }
   /* Cellules calendrier plus tappables */
   .cal-day { min-height: 64px; padding: 0.35rem 0.4rem; }

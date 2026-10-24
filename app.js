@@ -277,11 +277,90 @@ async function migrateLegacyOverrides() {
   } catch { /* nouvel essai au prochain chargement */ }
 }
 
+// Libellé bancaire normalisé : minuscules sans accents, sans le bruit des relevés
+// (CB, PRLV, VIR, dates, n° de carte/référence) → mots significatifs.
+const LABEL_NOISE = new Set(['cb', 'carte', 'prlv', 'sepa', 'vir', 'virement', 'inst', 'paiement', 'achat',
+  'retrait', 'dab', 'fact', 'facture', 'ref', 'de', 'du', 'des', 'la', 'le', 'les', 'et', 'sas', 'sarl', 'fr', 'www', 'com']);
+function labelTokens(label) {
+  return String(label).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(w => w.length >= 3 && !/\d/.test(w) && !LABEL_NOISE.has(w));
+}
+
+// Index de l'historique (opérations de dépense, la plus récente d'abord) :
+// libellé normalisé → catégorie, et mot → catégories. Recalculé quand les
+// opérations changent.
+let categoryHistoryCache = null;
+function categoryHistory() {
+  const ex = state.expenses;
+  if (categoryHistoryCache && categoryHistoryCache.ref === ex && categoryHistoryCache.len === ex.length) {
+    return categoryHistoryCache;
+  }
+  const exact = new Map();   // 'carrefour market' → catId
+  const words = new Map();   // 'carrefour' → Map(catId → nb)
+  const active = new Set(CATEGORIES.filter(c => !c.archived && c.id !== DEFAULT_CATEGORY).map(c => c.id));
+  for (const e of [...ex].sort((a, b) => b.date.localeCompare(a.date))) {
+    if (e.type !== 'depense' || !active.has(e.category)) continue;
+    const toks = labelTokens(e.label);
+    if (!toks.length) continue;
+    const key = toks.join(' ');
+    if (!exact.has(key)) exact.set(key, e.category);
+    for (const w of new Set(toks)) {
+      const m = words.get(w) || words.set(w, new Map()).get(w);
+      m.set(e.category, (m.get(e.category) || 0) + 1);
+    }
+  }
+  categoryHistoryCache = { ref: ex, len: ex.length, exact, words };
+  return categoryHistoryCache;
+}
+
+// Catégorie réelle visée par un mot-clé : l'id s'il existe et est actif, sinon
+// une catégorie active dont le libellé donne ce slug (ex. 'essence' → « Essence »
+// recréée sous l'id essence_2).
+function keywordCategory(id) {
+  const slug = l => l.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const direct = CATEGORIES.find(c => c.id === id && !c.archived);
+  if (direct) return direct.id;
+  const byLabel = CATEGORIES.find(c => !c.archived && slug(c.label) === id);
+  return byLabel ? byLabel.id : null;
+}
+
+// Catégorie suggérée pour une dépense, par ordre de confiance :
+// 1. une opération passée au libellé normalisé identique ;
+// 2. une opération passée partageant un mot du libellé (le plus fréquent gagne) ;
+// 3. les mots-clés CATEGORY_KEYWORDS, comparés sur des mots entiers ;
+// 4. DEFAULT_CATEGORY.
 function guessCategory(label) {
-  const lower = label.toLowerCase();
-  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (!CATEGORIES.some(c => c.id === cat && !c.archived)) continue;
-    if (keywords.some(kw => lower.includes(kw))) return cat;
+  const toks = labelTokens(label);
+  const hist = categoryHistory();
+  if (toks.length) {
+    const exact = hist.exact.get(toks.join(' '));
+    if (exact) return exact;
+    // Seuls les mots nettement associés à une catégorie (≥ 70 % de leurs
+    // occurrences) votent : un mot générique (« paris », « market ») ne décide rien.
+    const votes = new Map();
+    for (const w of toks) {
+      const m = hist.words.get(w);
+      if (!m) continue;
+      let total = 0, top = null;
+      for (const [cat, n] of m) { total += n; if (!top || n > top.n) top = { cat, n }; }
+      if (top.n / total >= 0.7) votes.set(top.cat, (votes.get(top.cat) || 0) + top.n);
+    }
+    let best = null;
+    for (const [cat, n] of votes) if (!best || n > best.n) best = { cat, n };
+    if (best) return best.cat;
+  }
+  const text = ` ${toks.join(' ')} `;
+  const raw  = ` ${String(label).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9+&.]+/g, ' ')} `;
+  for (const [id, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    const cat = keywordCategory(id);
+    if (!cat) continue;
+    if (keywords.some(kw => {
+      const k = kw.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return text.includes(` ${k} `) || raw.includes(` ${k} `);
+    })) return cat;
   }
   return DEFAULT_CATEGORY;
 }
@@ -2507,7 +2586,7 @@ async function init() {
   $('add-label').addEventListener('blur', () => {
     const label = $('add-label').value;
     const type  = $('add-type').value;
-    if (label && type === 'depense') {
+    if (label && type === 'depense' && !editingExpenseId) {
       $('add-category').value = guessCategory(label);
     }
   });

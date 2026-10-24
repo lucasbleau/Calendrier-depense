@@ -1273,9 +1273,10 @@ function goalDirectFigures(catId, year, month) {
   return { total, goal: r > 0 ? r : null, auto: r > 0 };
 }
 
-// Moyenne mensuelle des dépenses saisies d'une catégorie (groupe : elle + ses
+// Moyenne mensuelle du « réel » d'une catégorie (groupe : elle + ses
 // sous-catégories actives) sur les 12 derniers mois complets, sans remonter
 // avant le premier mois où le compte a des opérations. null si aucun mois.
+// Réel = même règle que la vue : dépenses saisies + récurrences non saisies.
 function categoryMonthlyAverage(catId) {
   const first = state.expenses.reduce((min, e) => (min === null || e.date < min ? e.date : min), null);
   if (!first) return null;
@@ -1287,9 +1288,7 @@ function categoryMonthlyAverage(catId) {
   for (let i = 0; i < 12; i++) {
     if (--m < 0) { m = 11; y--; }
     if (ymKey(y, m) < firstYm) break;
-    sum += getMonthData(y, m)
-      .filter(e => e.type === 'depense' && ids.includes(e.category))
-      .reduce((t, e) => t + e.amount, 0);
+    sum += ids.reduce((t, id) => t + goalCatFigures(id, y, m).total, 0);
     months++;
   }
   return months ? { avg: Math.round(sum / months * 100) / 100, months } : null;

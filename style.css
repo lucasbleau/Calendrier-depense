@@ -930,8 +930,6 @@ body {
   padding: 1.5rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-  max-width: 780px;
-  margin: 0 auto;
 }
 
 .recurring-header {

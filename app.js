@@ -169,6 +169,11 @@ const CatDB = {
     await categoriesStore.send('POST', { body: cat });
     if (IS_DEPLOYED) localStorage.setItem(userCacheKey(CATEGORIES_KEY), JSON.stringify(CATEGORIES));
   },
+  // Fusion : en local, l'appelant met à jour et persiste l'état (cf. mergeCategory)
+  async merge(from, to) {
+    if (!IS_DEPLOYED) return;
+    await categoriesStore.send('POST', { body: { action: 'merge', from, to } });
+  },
   // En local, la persistance est faite par l'appelant APRÈS le filtrage (cf. deleteCategory)
   async remove(id) {
     if (!IS_DEPLOYED) return;
@@ -1632,6 +1637,7 @@ function renderCategories() {
             </div>
             <div class="cat-cell-parent cat-archived-count">${usedCount ? `${usedCount} opération(s) conservée(s)` : 'aucune opération'}</div>
             <div class="cat-cell-mode">
+              ${mergeSelectHtml(cat)}
               <button type="button" class="btn-archive-cat btn-restore-cat" data-id="${cat.id}">Restaurer</button>
             </div>
           </div>
@@ -1667,6 +1673,11 @@ function renderCategories() {
     sel.addEventListener('change', e => updateCatParent(e.target.dataset.id, e.target.value));
   });
 
+  // Fusion d'une catégorie archivée dans une autre
+  container.querySelectorAll('.cat-merge-select').forEach(sel => {
+    sel.addEventListener('change', e => { if (e.target.value) mergeCategory(e.target.dataset.id, e.target.value); });
+  });
+
   // Archivage / restauration
   container.querySelectorAll('.btn-archive-cat:not([disabled])').forEach(btn => {
     btn.addEventListener('click', () => setCatArchived(btn.dataset.id, !btn.classList.contains('btn-restore-cat')));
@@ -1694,6 +1705,61 @@ function catDeleteInfo(cat) {
     : recurCount > 0 ? `${recurCount} récurrence(s) liée(s)`
     : 'Supprimer';
   return { usedCount, recurCount, canDelete, delTitle };
+}
+
+// Menu « Fusionner dans… » d'une catégorie archivée : cibles = catégories actives
+function mergeSelectHtml(cat) {
+  const opts = [];
+  forEachCategoryOrdered((c, isChild) => {
+    if (c.id === cat.id || c.id === INCOME_CATEGORY) return;
+    opts.push(`<option value="${c.id}">${isChild ? '↳ ' : ''}${c.label}</option>`);
+  });
+  if (!opts.length || cat.id === DEFAULT_CATEGORY || cat.id === INCOME_CATEGORY) return '';
+  return `<select class="cat-merge-select" data-id="${cat.id}"
+      title="Déplacer ses opérations et récurrences dans une autre catégorie, puis la supprimer">
+      <option value="">Fusionner dans…</option>${opts.join('')}
+    </select>`;
+}
+
+// Fusionne une catégorie dans une autre : ses opérations et récurrences passent
+// dans la cible, son objectif manuel disparaît, puis elle est supprimée.
+async function mergeCategory(fromId, toId) {
+  const from = CATEGORIES.find(c => c.id === fromId);
+  const to   = CATEGORIES.find(c => c.id === toId);
+  if (!from || !to || fromId === toId) return;
+  const nOps = state.expenses.filter(e => e.category === fromId).length;
+  const nRec = state.recurring.filter(t => t.category === fromId).length;
+  const moved = [
+    nOps ? `${nOps} opération${nOps > 1 ? 's' : ''}` : '',
+    nRec ? `${nRec} récurrence${nRec > 1 ? 's' : ''}` : '',
+  ].filter(Boolean).join(' et ') || 'aucune opération';
+  const ok = await confirmModal({
+    title: 'Fusionner la catégorie',
+    message: `Déplacer ${moved} de « ${from.label} » vers « ${to.label} », puis supprimer « ${from.label} » ? Cette action est définitive.`,
+    okLabel: 'Fusionner',
+    danger: true,
+  });
+  if (!ok) { renderCategories(); return; }
+  try {
+    await CatDB.merge(fromId, toId);
+  } catch (err) {
+    showToast(err.message || 'Fusion échouée');
+    renderCategories();
+    return;
+  }
+  for (const e of state.expenses)  if (e.category === fromId) e.category = toId;
+  for (const t of state.recurring) if (t.category === fromId) t.category = toId;
+  delete state.goals[fromId];
+  CATEGORIES = CATEGORIES.filter(c => c.id !== fromId);
+  for (const c of CATEGORIES) if (c.parent === fromId) c.parent = undefined; // miroir du ON DELETE SET NULL
+  // Local : persistance ; déployé : caches hors ligne du compte
+  localStorage.setItem(userCacheKey(STORAGE_KEY),    JSON.stringify(state.expenses));
+  localStorage.setItem(userCacheKey(RECURRING_KEY),  JSON.stringify(state.recurring));
+  localStorage.setItem(userCacheKey(GOALS_KEY),      JSON.stringify(state.goals));
+  localStorage.setItem(userCacheKey(CATEGORIES_KEY), JSON.stringify(CATEGORIES));
+  populateCategoryDropdowns();
+  renderCategories();
+  showToast(`« ${from.label} » fusionnée dans « ${to.label} »`);
 }
 
 async function setCatArchived(id, archived) {

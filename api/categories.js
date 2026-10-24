@@ -1,5 +1,8 @@
 const { withDb } = require('./_lib');
 
+// Miroir de DEFAULT_CATEGORY / INCOME_CATEGORY côté front
+const SYSTEM_CATEGORIES = ['autre', 'revenus'];
+
 // Auto-migration au cold start : colonne `archived` (cf. migrate-cat-archive.sql),
 // pour qu'un déploiement ne demande aucune étape manuelle sur la base.
 let schemaReady = false;
@@ -19,6 +22,42 @@ module.exports = withDb('categories', 'GET,POST,DELETE,OPTIONS', async (req, res
       [uid]
     );
     return res.json(rows);
+  }
+
+  // ── POST {action:'merge'} : fusionner une catégorie dans une autre ───────
+  // Ses opérations et récurrences passent dans la cible, son objectif manuel
+  // est supprimé, puis la catégorie elle-même (plan_* en CASCADE).
+  if (req.method === 'POST' && req.body && req.body.action === 'merge') {
+    const { from, to } = req.body;
+    if (typeof from !== 'string' || typeof to !== 'string' || !from || !to || from === to) {
+      return res.status(400).json({ error: 'Paramètres from et to requis et distincts' });
+    }
+    if (SYSTEM_CATEGORIES.includes(from)) {
+      return res.status(400).json({ error: 'Catégorie système non fusionnable' });
+    }
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        'SELECT id FROM categories WHERE user_id = $1 AND id = ANY($2)', [uid, [from, to]]
+      );
+      if (rows.length !== 2) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Catégorie introuvable' });
+      }
+      const ops = await client.query(
+        'UPDATE expenses SET category = $3 WHERE user_id = $1 AND category = $2', [uid, from, to]
+      );
+      const rec = await client.query(
+        'UPDATE recurring_tasks SET category = $3 WHERE user_id = $1 AND category = $2', [uid, from, to]
+      );
+      await client.query('DELETE FROM goals WHERE user_id = $1 AND category = $2', [uid, from]);
+      await client.query('DELETE FROM categories WHERE user_id = $1 AND id = $2', [uid, from]);
+      await client.query('COMMIT');
+      return res.json({ ok: true, expenses: ops.rowCount, recurring: rec.rowCount });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    }
   }
 
   // ── POST : créer ou mettre à jour une catégorie (upsert) ─────────────────

@@ -506,6 +506,53 @@ function detectAndParseCSV(text) {
   return results;
 }
 
+// Rapproche des opérations importées des récurrences, pour éviter le double
+// comptage (opération importée + rappel ↺). Une opération est liée (recurId,
+// catégorie de la récurrence) si : même type, montant à ±5 % (min 1 €) du
+// montant attendu ce mois-là, date à ±5 jours d'une occurrence du même mois
+// pas encore saisie. Plusieurs candidates → la plus proche (montant puis date).
+// Renvoie [{ op, task }] ; les opérations sont modifiées en place.
+const LINK_DAY_TOLERANCE = 5;
+function linkImportToRecurrences(ops) {
+  const taken = new Set();   // `${taskId}|${ym}|${day}` déjà couverte
+  const realizedCache = {};
+  const isTaken = (task, y, m, day) => {
+    const ym = ymKey(y, m);
+    const k = `${task.id}|${ym}`;
+    realizedCache[k] ??= realizedRecurDays(task, y, m);
+    return realizedCache[k].has(day) || taken.has(`${k}|${day}`);
+  };
+  const links = [];
+  for (const op of [...ops].sort((a, b) => a.date.localeCompare(b.date))) {
+    if (op.recurId) continue;
+    const y = +op.date.slice(0, 4), m = +op.date.slice(5, 7) - 1, d = +op.date.slice(8, 10);
+    const ym = ymKey(y, m), dim = daysIn(y, m);
+    let best = null;
+    for (const task of state.recurring) {
+      if (task.type !== op.type || !CATEGORIES.some(c => c.id === task.category)) continue;
+      const ov = getOverride(task.id, ym);
+      const expected = ov ? ov.amount : task.amount;
+      if (!(expected > 0)) continue;
+      const amountGap = Math.abs(op.amount - expected);
+      if (amountGap > Math.max(1, expected * 0.05)) continue;
+      for (const day of task.days) {
+        if (day > dim || isTaken(task, y, m, day)) continue;
+        const dayGap = Math.abs(day - d);
+        if (dayGap > LINK_DAY_TOLERANCE) continue;
+        const score = amountGap / expected + dayGap / 100;
+        if (!best || score < best.score) best = { task, day, score };
+      }
+    }
+    if (best) {
+      taken.add(`${best.task.id}|${ym}|${best.day}`);
+      op.recurId  = best.task.id;
+      op.category = best.task.category;
+      links.push({ op, task: best.task });
+    }
+  }
+  return links;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // État global
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1156,7 +1203,8 @@ async function saveNewExpense() {
 // Modal : Import CSV
 // ─────────────────────────────────────────────────────────────────────────────
 
-let pendingImport = null;
+let pendingImport  = null;  // nouvelles opérations (doublons écartés), déjà rapprochées
+let pendingIgnored = 0;     // doublons écartés à l'aperçu
 
 function openImportModal() {
   pendingImport = null;
@@ -1177,30 +1225,39 @@ function handleFileSelect(e) {
 
   const reader = new FileReader();
   reader.onload = ev => {
-    pendingImport = detectAndParseCSV(ev.target.result);
+    const parsed  = detectAndParseCSV(ev.target.result);
     const preview = $('import-preview');
 
-    if (!pendingImport.length) {
+    if (!parsed.length) {
+      pendingImport = null;
       preview.innerHTML = '<p class="import-error">Aucune opération détectée. Vérifiez le format (en-tête requis : Date, Libellé, Montant ou Débit/Crédit).</p>';
       $('btn-confirm-import').disabled = true;
       return;
     }
 
+    const existing = new Set(state.expenses.map(e => `${e.date}|${e.label}|${e.amount}`));
+    pendingImport  = parsed.filter(e => !existing.has(`${e.date}|${e.label}|${e.amount}`));
+    pendingIgnored = parsed.length - pendingImport.length;
+    const links    = linkImportToRecurrences(pendingImport);
+
     const shown = pendingImport.slice(0, 8);
     preview.innerHTML = `
-      <p class="import-info">${pendingImport.length} opération(s) détectée(s)</p>
+      <p class="import-info">${pendingImport.length} nouvelle(s) opération(s)${pendingIgnored ? ` · ${pendingIgnored} doublon(s) ignoré(s)` : ''}</p>
+      ${links.length ? `<p class="import-info import-links">↺ ${links.length} liée(s) à une récurrence (pas de double comptage) :
+        ${links.slice(0, 4).map(l => `<span class="import-link">${l.op.date.slice(8, 10)}/${l.op.date.slice(5, 7)} ${l.op.label} → ${l.task.label}</span>`).join('')}
+        ${links.length > 4 ? `<span class="import-link">… et ${links.length - 4} autre(s)</span>` : ''}</p>` : ''}
       <ul class="import-list">
         ${shown.map(e => `
           <li>
             <span class="import-date">${e.date}</span>
-            <span class="import-label" title="${e.label}">${e.label}</span>
+            <span class="import-label" title="${e.label}">${e.recurId ? '↺ ' : ''}${e.label}</span>
             <span class="import-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
           </li>
         `).join('')}
         ${pendingImport.length > 8 ? `<li class="import-more">… et ${pendingImport.length - 8} opération(s) de plus</li>` : ''}
       </ul>
     `;
-    $('btn-confirm-import').disabled = false;
+    $('btn-confirm-import').disabled = !pendingImport.length;
   };
   reader.readAsText(file, 'UTF-8');
 }
@@ -1208,20 +1265,16 @@ function handleFileSelect(e) {
 async function confirmImport() {
   if (!pendingImport?.length) return;
 
-  const existing = new Set(state.expenses.map(e => `${e.date}|${e.label}|${e.amount}`));
-  const newOps   = pendingImport.filter(e => !existing.has(`${e.date}|${e.label}|${e.amount}`));
-  const ignored  = pendingImport.length - newOps.length;
-
-  if (!newOps.length) {
-    showToast(`Aucun nouvel élément (${ignored} doublon(s) détecté(s))`);
-    closeImportModal();
-    return;
-  }
+  const newOps  = pendingImport;
+  const ignored = pendingIgnored;
+  const linked  = newOps.filter(e => e.recurId).length;
 
   state.expenses.push(...newOps);
   closeImportModal();
   renderCalendar();
-  showToast(`${newOps.length} opération(s) importée(s)${ignored > 0 ? ` · ${ignored} doublon(s) ignoré(s)` : ''}`);
+  showToast(`${newOps.length} opération(s) importée(s)` +
+    (linked ? ` · ${linked} liée(s) à une récurrence` : '') +
+    (ignored > 0 ? ` · ${ignored} doublon(s) ignoré(s)` : ''));
 
   try {
     await DB.addMany(newOps);

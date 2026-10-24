@@ -35,6 +35,8 @@ Deux modes complémentaires :
    - Compatible Crédit Mutuel et Revolut
    - Auto-détection des colonnes (date, libellé, montant, débit/crédit)
    - Catégorisation automatique par mots-clés
+   - Doublons (même date + libellé + montant qu'une opération existante) écartés dès l'aperçu
+   - **Rapprochement avec les récurrences** (`linkImportToRecurrences`) : une opération importée est liée (`recurId` + catégorie de la récurrence) si même type, montant à ±5 % (min 1 €) du montant attendu ce mois-là (override inclus), date à ±5 jours (`LINK_DAY_TOLERANCE`) d'une occurrence du même mois pas encore saisie ; candidates multiples → la plus proche. L'aperçu liste les liens ; évite le double comptage opération importée + rappel ↺.
 
 ### Catégories
 

@@ -1273,6 +1273,28 @@ function goalDirectFigures(catId, year, month) {
   return { total, goal: r > 0 ? r : null, auto: r > 0 };
 }
 
+// Moyenne mensuelle des dépenses saisies d'une catégorie (groupe : elle + ses
+// sous-catégories actives) sur les 12 derniers mois complets, sans remonter
+// avant le premier mois où le compte a des opérations. null si aucun mois.
+function categoryMonthlyAverage(catId) {
+  const first = state.expenses.reduce((min, e) => (min === null || e.date < min ? e.date : min), null);
+  if (!first) return null;
+  const firstYm = first.slice(0, 7);
+  const ids = isParent(catId)
+    ? [catId, ...childrenOf(catId).filter(c => !c.archived).map(c => c.id)]
+    : [catId];
+  let y = today.getFullYear(), m = today.getMonth(), sum = 0, months = 0;
+  for (let i = 0; i < 12; i++) {
+    if (--m < 0) { m = 11; y--; }
+    if (ymKey(y, m) < firstYm) break;
+    sum += getMonthData(y, m)
+      .filter(e => e.type === 'depense' && ids.includes(e.category))
+      .reduce((t, e) => t + e.amount, 0);
+    months++;
+  }
+  return months ? { avg: Math.round(sum / months * 100) / 100, months } : null;
+}
+
 // Opérations d'une catégorie pour un mois : saisies + récurrences restantes (↺)
 function goalOpsRows(catId, year, month) {
   const ym  = ymKey(year, month);
@@ -1315,24 +1337,43 @@ function renderGoals() {
   const pct  = planned > 0 ? Math.round(real / planned * 100) : null;
   const diff = planned - real;
 
+  // Bulle de survol de l'objectif : moyenne mensuelle des dépenses passées,
+  // sauf si l'objectif saisi à la main est déjà égal à cette moyenne.
+  const avgTip = (catId, hint) => {
+    const a = categoryMonthlyAverage(catId);
+    if (!a) return '';
+    const manual = state.goals[catId];
+    if (manual > 0 && Math.round(manual * 100) === Math.round(a.avg * 100)) return '';
+    return `<span class="obj-tip" role="tooltip">
+      <span class="obj-tip-avg">Moyenne : <strong>${fmtEUR(a.avg)}</strong>/mois</span>
+      <span class="obj-tip-sub">${a.months > 1 ? `sur les ${a.months} derniers mois` : 'sur le mois dernier'}</span>
+      ${hint ? `<span class="obj-tip-hint">${hint}</span>` : ''}
+    </span>`;
+  };
+
   const valHtml = (catId, f, editable, isGroup) => {
     const realPart = `<span class="${f.goal ? goalClass(f.total, f.goal) : ''}">${f.total > 0 ? fmtEUR(f.total) : '—'}</span>`;
-    if (editable && state.editingGoal === catId) {
-      return `${realPart}<span class="obj-sep">/</span>
-        <input type="text" class="obj-goal-input" id="goal-input-${catId}" data-goal-input="${catId}" inputmode="decimal"
-          value="${state.goals[catId] || ''}" placeholder="${f.auto ? 'auto ' + fmtCompact(f.goal) : '€/mois'}"
-          aria-label="Objectif mensuel" />`;
-    }
     if (!editable) {
       return f.goal ? `${realPart}<span class="obj-sep">/</span><span class="obj-goal-static">${fmtEUR(f.goal)}</span>` : realPart;
     }
+    if (state.editingGoal === catId) {
+      return `${realPart}<span class="obj-sep">/</span>
+        <span class="obj-goal-wrap">
+          <input type="text" class="obj-goal-input" id="goal-input-${catId}" data-goal-input="${catId}" inputmode="decimal"
+            value="${state.goals[catId] || ''}" placeholder="${f.auto ? 'auto ' + fmtCompact(f.goal) : '€/mois'}"
+            aria-label="Objectif mensuel" />${avgTip(catId, '')}
+        </span>`;
+    }
+    const hint = !f.goal ? (isGroup ? 'Fixer un plafond global' : 'Fixer un objectif mensuel')
+      : f.auto ? (isGroup ? 'Somme des sous-catégories — cliquer pour fixer un plafond global' : 'Objectif auto (somme des récurrences) — cliquer pour le fixer')
+      : (isGroup ? 'Plafond global du groupe (vider pour revenir à la somme)' : 'Cliquer pour modifier');
+    const tip = avgTip(catId, hint);
+    // Sans bulle, l'explication reste disponible en info-bulle native
+    const title = tip ? '' : ` title="${hint}"`;
     const goalBtn = f.goal
-      ? `<button type="button" class="obj-goal${f.auto ? ' is-auto' : ''}" data-goal="${catId}"
-          title="${f.auto
-            ? (isGroup ? 'Somme des sous-catégories — cliquer pour fixer un plafond global' : 'Objectif auto (somme des récurrences) — cliquer pour le fixer')
-            : (isGroup ? 'Plafond global du groupe (vider pour revenir à la somme)' : 'Modifier l\'objectif')}">${fmtEUR(f.goal)}</button>`
-      : `<button type="button" class="obj-goal is-empty" data-goal="${catId}" title="${isGroup ? 'Fixer un plafond global' : 'Fixer un objectif mensuel'}">+ objectif</button>`;
-    return `${realPart}<span class="obj-sep">/</span>${goalBtn}`;
+      ? `<button type="button" class="obj-goal${f.auto ? ' is-auto' : ''}" data-goal="${catId}"${title}>${fmtEUR(f.goal)}</button>`
+      : `<button type="button" class="obj-goal is-empty" data-goal="${catId}"${title}>+ objectif</button>`;
+    return `${realPart}<span class="obj-sep">/</span><span class="obj-goal-wrap">${goalBtn}${tip}</span>`;
   };
 
   const barHtml = f => {

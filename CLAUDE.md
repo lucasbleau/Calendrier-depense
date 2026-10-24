@@ -69,12 +69,15 @@ Simplifiée le 24/10/2026 : **une seule liste par mois** (l'ancienne version —
 - **Bloc total** : réel / prévu du mois, %, barre, « Reste X € » ou « Dépassé de X € ».
 - **Une ligne par catégorie de premier niveau** ayant de l'activité ou un objectif, triée par réel décroissant : `réel / objectif` + barre colorée (vert < 80 %, orange 80–100 %, rouge > 100 %, `goalClass`).
   - Réel = dépenses saisies + récurrences restantes (`recurRemaining`, anti double comptage).
-  - **Objectif effectif** (`getGoalForMonth`) : valeur manuelle (`state.goals`) si fixée — elle remplace tout —, sinon somme des récurrences du mois (`recurExpected`, affichée en italique = auto). Catégorie archivée → aucun objectif.
-- **Clic sur l'objectif** → champ inline (Entrée/blur = enregistrer via `saveGoal`, vide = revenir à l'auto, Échap = annuler). Les groupes (parents) affichent la somme de leurs sous-catégories, non éditable.
-- **Clic sur la ligne** → dépliage (`state.goalsExpanded`) : un **groupe** montre ses sous-catégories (chacune éditable et dépliable) + une ligne « (sans sous-catégorie) » si le parent a des dépenses directes ; une **feuille** montre ses opérations du mois (`goalOpsRows`, récurrences restantes en ↺ italique).
+  - **Objectif d'une feuille** (`getGoalForMonth`) : valeur manuelle (`state.goals`) si fixée — elle remplace tout —, sinon somme des récurrences du mois (`recurExpected`, affichée en italique = auto).
+  - **Objectif d'un groupe** (`topGoalForMonth`, groupe = a des sous-catégories **actives**, `isParent`) : **plafond global** manuel (`state.goals[parent]`) s'il est fixé, sinon somme (récurrences propres du parent + objectifs des sous-catégories actives, en italique).
+  - Total prévu du mois : `monthPlannedTotal` (aussi utilisé par l'indicateur du calendrier).
+  - Un objectif manuel vaut pour **tous les mois** (table `goals` sans colonne mois).
+- **Clic sur l'objectif** (feuille ou groupe) → champ inline (Entrée/blur = enregistrer via `saveGoal`, vide = revenir à l'auto/somme, Échap = annuler).
+- **Clic sur la ligne** → dépliage (`state.goalsExpanded`) : un **groupe** montre ses sous-catégories (chacune éditable et dépliable) + une ligne « (sans sous-catégorie) » non éditable si le parent a des dépenses directes (objectif = ses récurrences, `goalDirectFigures`) ; une **feuille** montre ses opérations du mois (`goalOpsRows`, récurrences restantes en ↺ italique).
 - **« Autres catégories (n) »** repliable (`state.goalsShowOthers`) : catégories actives sans activité ni objectif, pour pouvoir leur fixer un objectif.
-- Catégorie archivée : affichée seulement si elle a des dépenses ce mois (badge « archivée »).
-- Helpers : `goalCatFigures` (une catégorie), `goalGroupFigures` (famille), `goalOpsRows`.
+- **Catégories archivées : jamais affichées dans Objectifs, ni comptées** dans les totaux (réel et prévu), y compris comme sous-catégories.
+- Helpers : `goalCatFigures` (une catégorie), `goalGroupFigures` (groupe), `goalDirectFigures`, `goalOpsRows`.
 
 ### Vue Planning — retirée (24/10/2026)
 

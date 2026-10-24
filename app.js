@@ -495,6 +495,26 @@ function getGoalForMonth(categoryId, year, month) {
   return r > 0 ? r : null;
 }
 
+// Objectif d'une catégorie de premier niveau. Feuille → getGoalForMonth.
+// Groupe (sous-catégories actives) → plafond global manuel s'il est fixé, sinon
+// somme : récurrences propres du parent + objectifs des sous-catégories actives.
+function topGoalForMonth(catId, year, month) {
+  if (!isParent(catId)) return getGoalForMonth(catId, year, month);
+  const manual = state.goals[catId];
+  if (manual > 0) return manual;
+  const sum = recurExpected(catId, year, month) + childrenOf(catId)
+    .filter(c => !c.archived)
+    .reduce((s, c) => s + (getGoalForMonth(c.id, year, month) || 0), 0);
+  return sum > 0 ? sum : null;
+}
+
+// Total prévu d'un mois (catégories archivées exclues)
+function monthPlannedTotal(year, month) {
+  return topLevelExpenseCats()
+    .filter(c => !c.archived)
+    .reduce((s, c) => s + (topGoalForMonth(c.id, year, month) || 0), 0);
+}
+
 function getMonthData(year, month) {
   const prefix = ymKey(year, month);
   return state.expenses.filter(e => e.date.startsWith(prefix));
@@ -530,8 +550,7 @@ function renderCalendar() {
   const goalIndicator = $('month-goal-indicator');
   if (goalIndicator) {
     const { spent: totalSpent, earned: totalEarned } = monthRealTotals(currentYear, currentMonth);
-    const totalPlanned = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY).reduce((s, cat) =>
-      s + (getGoalForMonth(cat.id, currentYear, currentMonth) || 0), 0);
+    const totalPlanned = monthPlannedTotal(currentYear, currentMonth);
     if (totalSpent > 0 || totalEarned > 0) {
       goalIndicator.textContent = `${fmtEUR(totalSpent)} / +${fmtEUR(totalEarned)}`;
       goalIndicator.className = `month-goal-indicator ${goalClass(totalSpent, totalPlanned)}`;
@@ -1237,15 +1256,21 @@ function goalCatFigures(catId, year, month) {
   return { total, goal, auto: goal > 0 && !(state.goals[catId] > 0) };
 }
 
-// Chiffres agrégés d'une catégorie de premier niveau (elle + ses sous-catégories)
+// Chiffres agrégés d'un groupe (lui + ses sous-catégories actives).
+// auto = pas de plafond global fixé → l'objectif affiché est la somme.
 function goalGroupFigures(catId, year, month) {
-  let total = 0, goal = 0;
-  for (const id of familyIds(catId)) {
-    const f = goalCatFigures(id, year, month);
-    total += f.total;
-    goal  += f.goal || 0;
-  }
-  return { total, goal: goal || null, auto: false };
+  const ids = [catId, ...childrenOf(catId).filter(c => !c.archived).map(c => c.id)];
+  const total = ids.reduce((s, id) => s + goalCatFigures(id, year, month).total, 0);
+  const goal  = topGoalForMonth(catId, year, month);
+  return { total, goal, auto: goal > 0 && !(state.goals[catId] > 0) };
+}
+
+// Dépenses rangées directement dans un parent : son objectif propre se limite
+// à ses récurrences (le manuel du parent est le plafond global du groupe).
+function goalDirectFigures(catId, year, month) {
+  const { total } = goalCatFigures(catId, year, month);
+  const r = recurExpected(catId, year, month);
+  return { total, goal: r > 0 ? r : null, auto: r > 0 };
 }
 
 // Opérations d'une catégorie pour un mois : saisies + récurrences restantes (↺)
@@ -1279,19 +1304,18 @@ function renderGoals() {
   const hasData = f => f.total > 0 || f.goal > 0;
   const byWeight = (a, b) => b.f.total - a.f.total || (b.f.goal || 0) - (a.f.goal || 0);
 
-  // Total du mois : toutes les catégories de dépense
-  let real = 0, planned = 0;
-  for (const c of CATEGORIES) {
-    if (c.id === INCOME_CATEGORY) continue;
-    const f = goalCatFigures(c.id, year, month);
-    real += f.total;
-    planned += f.goal || 0;
-  }
+  // Catégories archivées : jamais affichées ici, ni comptées dans le total
+  const tops = topLevelExpenseCats().filter(c => !c.archived).map(cat => {
+    const isGroup = isParent(cat.id);
+    return { cat, isGroup, f: figs(cat, isGroup) };
+  });
+  const real    = tops.reduce((s, t) => s + t.f.total, 0);
+  const planned = monthPlannedTotal(year, month);
   const totalCls = goalClass(real, planned);
   const pct  = planned > 0 ? Math.round(real / planned * 100) : null;
   const diff = planned - real;
 
-  const valHtml = (catId, f, editable) => {
+  const valHtml = (catId, f, editable, isGroup) => {
     const realPart = `<span class="${f.goal ? goalClass(f.total, f.goal) : ''}">${f.total > 0 ? fmtEUR(f.total) : '—'}</span>`;
     if (editable && state.editingGoal === catId) {
       return `${realPart}<span class="obj-sep">/</span>
@@ -1304,8 +1328,10 @@ function renderGoals() {
     }
     const goalBtn = f.goal
       ? `<button type="button" class="obj-goal${f.auto ? ' is-auto' : ''}" data-goal="${catId}"
-          title="${f.auto ? 'Objectif auto (somme des récurrences) — cliquer pour le fixer' : 'Modifier l\'objectif'}">${fmtEUR(f.goal)}</button>`
-      : `<button type="button" class="obj-goal is-empty" data-goal="${catId}" title="Fixer un objectif mensuel">+ objectif</button>`;
+          title="${f.auto
+            ? (isGroup ? 'Somme des sous-catégories — cliquer pour fixer un plafond global' : 'Objectif auto (somme des récurrences) — cliquer pour le fixer')
+            : (isGroup ? 'Plafond global du groupe (vider pour revenir à la somme)' : 'Modifier l\'objectif')}">${fmtEUR(f.goal)}</button>`
+      : `<button type="button" class="obj-goal is-empty" data-goal="${catId}" title="${isGroup ? 'Fixer un plafond global' : 'Fixer un objectif mensuel'}">+ objectif</button>`;
     return `${realPart}<span class="obj-sep">/</span>${goalBtn}`;
   };
 
@@ -1333,12 +1359,12 @@ function renderGoals() {
     if (open) {
       if (isGroup) {
         const kids = childrenOf(cat.id)
+          .filter(c => !c.archived)
           .map(c => ({ c, f: goalCatFigures(c.id, year, month) }))
-          .filter(({ c, f }) => !c.archived || f.total > 0)
           .sort(byWeight);
         inner = `<ul class="obj-sublist">${kids.map(({ c, f }) =>
           rowHtml({ cat: c, f, key: c.id, isGroup: false, isChild: true })).join('')}`;
-        const direct = goalCatFigures(cat.id, year, month);
+        const direct = goalDirectFigures(cat.id, year, month);
         if (hasData(direct)) {
           inner += rowHtml({ cat, f: direct, key: `${cat.id}:direct`, isGroup: false, isChild: true,
             label: `${cat.label} (sans sous-catégorie)` });
@@ -1348,26 +1374,22 @@ function renderGoals() {
         inner = opsHtml(cat.id);
       }
     }
-    const editable = !isGroup && !key.endsWith(':direct') && !cat.archived;
+    const editable = !key.endsWith(':direct');
     return `
       <li class="obj-row${isChild ? ' obj-child' : ''}${open ? ' open' : ''}${muted ? ' is-muted' : ''}">
         <div class="obj-row-main" data-toggle="${key}" role="button" tabindex="0" aria-expanded="${open}">
           <span class="obj-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
           <span class="obj-dot" style="background:${cat.color}"></span>
-          <span class="obj-name">${label || cat.label}${cat.archived ? ' <span class="obj-archived">archivée</span>' : ''}</span>
-          <span class="obj-val">${valHtml(cat.id, f, editable)}</span>
+          <span class="obj-name">${label || cat.label}</span>
+          <span class="obj-val">${valHtml(cat.id, f, editable, isGroup)}</span>
         </div>
         ${barHtml(f)}
         ${inner}
       </li>`;
   };
 
-  const tops = topLevelExpenseCats().map(cat => {
-    const isGroup = childrenOf(cat.id).length > 0;
-    return { cat, isGroup, f: figs(cat, isGroup) };
-  });
-  const shown  = tops.filter(t => hasData(t.f) && (!t.cat.archived || t.f.total > 0)).sort(byWeight);
-  const others = tops.filter(t => !hasData(t.f) && !t.cat.archived);
+  const shown  = tops.filter(t => hasData(t.f)).sort(byWeight);
+  const others = tops.filter(t => !hasData(t.f));
 
   let html = `
     <div class="obj">

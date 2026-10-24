@@ -63,15 +63,18 @@ Deux modes complémentaires :
 
 ### Vue Objectifs
 
-- Tableau annuel (12 mois × toutes catégories de dépenses) avec colonne Total
-- **Objectif « effectif » d'une catégorie feuille** (`getGoalForMonth`) : **objectif auto = somme des récurrences du mois** (`recurExpected`) ; une **valeur manuelle** (✏, `state.goals`) **remplace tout** (même si inférieure aux récurrences). La carte affiche le montant auto avec un tag « auto » quand aucun manuel n'est fixé.
-- **Logique d'affichage par cellule** (`catFigures`) : réel = dépenses saisies + récurrences restantes (`recurRemaining`) ; dénominateur = objectif effectif (`getGoalForMonth`). Colorisation : vert < 80 % du dénominateur, orange 80–100 %, rouge ≥ 100 %.
-- **Colonne Total** : `réel / planifié` où planifié = Σ objectifs effectifs par catégorie
-  - Barre de progression colorée
-- **Ligne de pied (tfoot)** : totaux annuels réel / planifié par colonne + grand total
-- Séparateur visuel entre dernière catégorie et colonne Total
-- **Regroupement par sous-catégories** : les colonnes du tableau et la liste « mois en avant » sont par catégorie de **premier niveau** (`tableCats = topLevelExpenseCats()`), agrégées via `groupFigures` (somme d'elle-même + de ses sous-catégories, chacune avec ses dépenses et son objectif effectif). Dans « mois en avant », un parent est **dépliable** (caret, `state.goalsExpanded`) pour voir le détail de ses sous-catégories. Les cartes de réglage restent par feuille, préfixées « Parent › Enfant ».
-- **Sous-page Détail** (`renderGoalsDetail`) : puces ordonnées hiérarchiquement (enfants ↳ indentés). Sélectionner un **parent** agrège toute sa famille (`familyIds`) — total et opérations mois par mois, chaque ligne annotée de sa sous-catégorie (badge « total sous-catégories »). Sélectionner une feuille n'affiche qu'elle.
+Simplifiée le 24/10/2026 : **une seule liste par mois** (l'ancienne version — cartes de réglage, tableau annuel, sous-page Détail — est décrite dans `ETAT-PROJET.md`, commit `5b748e6`).
+
+- **Mois** partagé avec le calendrier (`state.currentMonth/Year`, flèches ← → et clavier ; `monthChanged()` rerend la vue).
+- **Bloc total** : réel / prévu du mois, %, barre, « Reste X € » ou « Dépassé de X € ».
+- **Une ligne par catégorie de premier niveau** ayant de l'activité ou un objectif, triée par réel décroissant : `réel / objectif` + barre colorée (vert < 80 %, orange 80–100 %, rouge > 100 %, `goalClass`).
+  - Réel = dépenses saisies + récurrences restantes (`recurRemaining`, anti double comptage).
+  - **Objectif effectif** (`getGoalForMonth`) : valeur manuelle (`state.goals`) si fixée — elle remplace tout —, sinon somme des récurrences du mois (`recurExpected`, affichée en italique = auto). Catégorie archivée → aucun objectif.
+- **Clic sur l'objectif** → champ inline (Entrée/blur = enregistrer via `saveGoal`, vide = revenir à l'auto, Échap = annuler). Les groupes (parents) affichent la somme de leurs sous-catégories, non éditable.
+- **Clic sur la ligne** → dépliage (`state.goalsExpanded`) : un **groupe** montre ses sous-catégories (chacune éditable et dépliable) + une ligne « (sans sous-catégorie) » si le parent a des dépenses directes ; une **feuille** montre ses opérations du mois (`goalOpsRows`, récurrences restantes en ↺ italique).
+- **« Autres catégories (n) »** repliable (`state.goalsShowOthers`) : catégories actives sans activité ni objectif, pour pouvoir leur fixer un objectif.
+- Catégorie archivée : affichée seulement si elle a des dépenses ce mois (badge « archivée »).
+- Helpers : `goalCatFigures` (une catégorie), `goalGroupFigures` (famille), `goalOpsRows`.
 
 ### Vue Planning — retirée (24/10/2026)
 

@@ -266,13 +266,6 @@ function isArchived(catId) {
   return CATEGORIES.some(c => c.id === catId && c.archived);
 }
 
-// Une catégorie archivée reste visible dans les récaps d'une année où elle a servi.
-function catUsedInYear(catId, year) {
-  const ids = familyIds(catId);
-  const prefix = `${year}-`;
-  return state.expenses.some(e => ids.includes(e.category) && e.date.startsWith(prefix));
-}
-
 // Catégories de dépense de premier niveau (sans parent) — l'ordre d'affichage
 // des vues récap (Objectifs, Stats).
 function topLevelExpenseCats() {
@@ -477,12 +470,9 @@ const state = {
   currentYear:  today.getFullYear(),
   currentMonth: today.getMonth(),
   selectedDate: null,
-  editingGoal:  null,
-  focusMonth:   today.getMonth(),
-  goalsTab:     'synthese', // 'synthese' | 'detail'
-  detailCat:    null,       // catégorie sélectionnée dans la sous-page Détail
-  detailMonth:  today.getMonth(), // mois déplié dans la sous-page Détail
-  goalsExpanded: new Set(), // ids des catégories parent dépliées (vue Objectifs)
+  editingGoal:  null,       // catégorie dont l'objectif est en cours d'édition (vue Objectifs)
+  goalsExpanded: new Set(), // lignes dépliées dans la vue Objectifs
+  goalsShowOthers: false,   // section « Autres catégories » dépliée (vue Objectifs)
   statsExpanded: new Set(), // ids des catégories parent dépliées (vue Stats)
   catArchivedOpen: false,   // section « Archivées » dépliée (vue Catégories)
 };
@@ -1235,410 +1225,219 @@ function monthRealTotals(year, month) {
   return { spent, earned };
 }
 
-function goalsSubTabsHtml() {
-  const tab = state.goalsTab;
-  return `<div class="goals-subtabs" role="tablist">
-    <button class="goals-subtab ${tab === 'synthese' ? 'active' : ''}" data-goals-tab="synthese" role="tab" aria-selected="${tab === 'synthese'}">Synthèse</button>
-    <button class="goals-subtab ${tab === 'detail' ? 'active' : ''}" data-goals-tab="detail" role="tab" aria-selected="${tab === 'detail'}">Détail</button>
-  </div>`;
+// Chiffres d'une catégorie (sans ses enfants) pour un mois.
+// réel = dépenses saisies + récurrences restantes (pas de double comptage) ;
+// objectif = manuel si fixé, sinon somme des récurrences (auto).
+function goalCatFigures(catId, year, month) {
+  const spent = getMonthData(year, month)
+    .filter(e => e.type === 'depense' && e.category === catId)
+    .reduce((s, e) => s + e.amount, 0);
+  const total = spent + recurRemaining(catId, year, month);
+  const goal  = getGoalForMonth(catId, year, month);
+  return { total, goal, auto: goal > 0 && !(state.goals[catId] > 0) };
 }
 
-function attachGoalsSubTabs(container) {
-  container.querySelectorAll('[data-goals-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.goalsTab = btn.dataset.goalsTab;
-      renderGoals();
-    });
-  });
+// Chiffres agrégés d'une catégorie de premier niveau (elle + ses sous-catégories)
+function goalGroupFigures(catId, year, month) {
+  let total = 0, goal = 0;
+  for (const id of familyIds(catId)) {
+    const f = goalCatFigures(id, year, month);
+    total += f.total;
+    goal  += f.goal || 0;
+  }
+  return { total, goal: goal || null, auto: false };
 }
 
+// Opérations d'une catégorie pour un mois : saisies + récurrences restantes (↺)
+function goalOpsRows(catId, year, month) {
+  const ym  = ymKey(year, month);
+  const dim = daysIn(year, month);
+  const rows = getMonthData(year, month)
+    .filter(e => e.type === 'depense' && e.category === catId)
+    .map(e => ({ day: +e.date.slice(8, 10), label: e.label, amount: e.amount, recur: false }));
+  for (const t of state.recurring) {
+    if (t.type !== 'depense' || t.category !== catId) continue;
+    const ov  = getOverride(t.id, ym);
+    const amt = ov ? ov.amount : t.amount;
+    if (!(amt > 0)) continue;
+    const realized = realizedRecurDays(t, year, month);
+    for (const d of t.days) {
+      if (d <= dim && !realized.has(d)) rows.push({ day: d, label: t.label, amount: amt, recur: true });
+    }
+  }
+  return rows.sort((a, b) => a.day - b.day || (a.recur - b.recur));
+}
+
+// Vue Objectifs : une liste par mois. Une ligne par catégorie de premier niveau
+// (réel / objectif + barre). Clic sur l'objectif → le modifier ; clic sur la
+// ligne → sous-catégories (groupe) ou opérations du mois (feuille).
 function renderGoals() {
   const container = $('goals-body');
-  const { currentYear } = state;
-  const nowMonth = today.getMonth();
-  const nowYear  = today.getFullYear();
+  const { currentYear: year, currentMonth: month } = state;
 
-  if (state.goalsTab === 'detail') { renderGoalsDetail(container); return; }
+  const figs = (cat, isGroup) => isGroup ? goalGroupFigures(cat.id, year, month) : goalCatFigures(cat.id, year, month);
+  const hasData = f => f.total > 0 || f.goal > 0;
+  const byWeight = (a, b) => b.f.total - a.f.total || (b.f.goal || 0) - (a.f.goal || 0);
 
-  // Objectif par catégorie : somme des récurrences (auto) ou valeur manuelle.
-  // Les vues récap (mois en avant + tableau année) regroupent par catégorie de
-  // premier niveau (un parent agrège ses sous-catégories).
-  const tableCats = topLevelExpenseCats().filter(c => !c.archived || catUsedInYear(c.id, currentYear));
-  // La config d'objectif se règle sur les feuilles actives (sans enfant actif).
-  const goalCats  = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && !c.archived && !isParent(c.id));
-
-  // Ligne de reglage / info des objectifs
-  let html = goalsSubTabsHtml();
-  if (goalCats.length) {
-    html += `<p class="goals-settings-hint">Objectif = somme des récurrences (auto), ou valeur forcée via ✏. Sous-catégories indiquées « Parent › Enfant ».</p>`;
-    html += `<div class="goals-settings">`;
+  // Total du mois : toutes les catégories de dépense
+  let real = 0, planned = 0;
+  for (const c of CATEGORIES) {
+    if (c.id === INCOME_CATEGORY) continue;
+    const f = goalCatFigures(c.id, year, month);
+    real += f.total;
+    planned += f.goal || 0;
   }
-  const orderedGoalCats = [];
-  forEachCategoryOrdered(cat => { if (goalCats.includes(cat)) orderedGoalCats.push(cat); });
-  for (const cat of orderedGoalCats) {
-    const catLabel = cat.parent ? `${getCat(cat.parent).label} › ${cat.label}` : cat.label;
-    const limit   = state.goals[cat.id];
-    const autoR   = recurExpected(cat.id, currentYear, state.focusMonth); // objectif auto = récurrences
-    const editing = state.editingGoal === cat.id;
-    html += `<div class="goal-setting-card" data-cat="${cat.id}">
-      <span class="goal-dot" style="background:${cat.color}"></span>
-      <span class="goal-cat-name">${catLabel}</span>`;
-    if (editing) {
-      html += `<div class="goal-inline-edit" style="margin-left:auto">
-        <input type="text" class="goal-edit-input" id="goal-input-${cat.id}"
-          value="${limit || ''}" placeholder="${autoR > 0 ? 'auto ' + fmtCompact(autoR) : '€/mois'}" inputmode="decimal" />
-        <button class="btn-goal-confirm" data-cat="${cat.id}">✓</button>
-        <button class="btn-goal-cancel"  data-cat="${cat.id}">✕</button>
-      </div>`;
-    } else {
-      const amountLabel = limit
-        ? `${fmtEUR(limit)}/mois`
-        : (autoR > 0 ? `${fmtEUR(autoR)}/mois <span class="goal-auto-tag">auto</span>` : '—');
-      html += `<span class="goal-setting-amount">${amountLabel}</span>
-        <button class="btn-icon btn-set-goal" data-cat="${cat.id}" title="${limit ? 'Modifier' : 'Forcer une valeur (sinon = récurrences)'}">✏</button>`;
+  const totalCls = goalClass(real, planned);
+  const pct  = planned > 0 ? Math.round(real / planned * 100) : null;
+  const diff = planned - real;
+
+  const valHtml = (catId, f, editable) => {
+    const realPart = `<span class="${f.goal ? goalClass(f.total, f.goal) : ''}">${f.total > 0 ? fmtEUR(f.total) : '—'}</span>`;
+    if (editable && state.editingGoal === catId) {
+      return `${realPart}<span class="obj-sep">/</span>
+        <input type="text" class="obj-goal-input" id="goal-input-${catId}" data-goal-input="${catId}" inputmode="decimal"
+          value="${state.goals[catId] || ''}" placeholder="${f.auto ? 'auto ' + fmtCompact(f.goal) : '€/mois'}"
+          aria-label="Objectif mensuel" />`;
     }
-    html += `</div>`;
-  }
-  if (goalCats.length) html += `</div>`;
-
-  // Chiffres d'une catégorie pour un mois : réel + récurrence + plafond
-  const monthCache = {};
-  const dataForMonth = m => (monthCache[m] ??= getMonthData(currentYear, m));
-  const catFigures = (cat, m) => {
-    const amount = dataForMonth(m)
-      .filter(e => e.type === 'depense' && e.category === cat.id)
-      .reduce((s, e) => s + e.amount, 0);
-    const r       = recurExpected(cat.id, currentYear, m);
-    const rem     = recurRemaining(cat.id, currentYear, m);
-    const goal    = getGoalForMonth(cat.id, currentYear, m); // manuel > récurrences (auto)
-    const denom   = goal || null;
-    const total   = amount + rem; // récurrences restantes seulement (pas de double comptage)
-    const planned = goal || 0;
-    const cls     = denom ? goalClass(total, denom) : '';
-    return { amount, r, goal, denom, total, planned, cls };
-  };
-
-  // Chiffres agrégés d'une catégorie de premier niveau : somme d'elle-même
-  // (dépenses + objectif propres) et de ses sous-catégories. Une feuille renvoie
-  // simplement ses propres chiffres.
-  const groupFigures = (topCat, m) => {
-    const ids = familyIds(topCat.id);
-    if (ids.length === 1) return catFigures(topCat, m);
-    let amount = 0, r = 0, total = 0, planned = 0, denom = 0, hasDenom = false, goal = 0;
-    for (const id of ids) {
-      const f = catFigures(getCat(id), m);
-      amount += f.amount; r += f.r; total += f.total; planned += f.planned; goal += (f.goal || 0);
-      if (f.denom) { denom += f.denom; hasDenom = true; }
+    if (!editable) {
+      return f.goal ? `${realPart}<span class="obj-sep">/</span><span class="obj-goal-static">${fmtEUR(f.goal)}</span>` : realPart;
     }
-    const d = hasDenom ? denom : null;
-    const cls = d ? goalClass(total, d) : '';
-    return { amount, r, goal, denom: d, total, planned, cls };
+    const goalBtn = f.goal
+      ? `<button type="button" class="obj-goal${f.auto ? ' is-auto' : ''}" data-goal="${catId}"
+          title="${f.auto ? 'Objectif auto (somme des récurrences) — cliquer pour le fixer' : 'Modifier l\'objectif'}">${fmtEUR(f.goal)}</button>`
+      : `<button type="button" class="obj-goal is-empty" data-goal="${catId}" title="Fixer un objectif mensuel">+ objectif</button>`;
+    return `${realPart}<span class="obj-sep">/</span>${goalBtn}`;
   };
 
-  // ── Mois en avant : liste verticale (parents agrégés, dépliables) ──────────
-  const focusM    = state.focusMonth;
-  const focusRows = tableCats
-    .map(cat => ({ cat, f: groupFigures(cat, focusM) }))
-    .filter(({ f }) => f.total > 0 || f.goal > 0)
-    .sort((a, b) => b.f.total - a.f.total || b.f.planned - a.f.planned);
-
-  const focusActual  = focusRows.reduce((s, { f }) => s + f.total, 0);
-  const focusPlanned = tableCats.reduce((s, cat) => s + groupFigures(cat, focusM).planned, 0);
-  const focusCls     = goalClass(focusActual, focusPlanned);
-
-  html += `
-    <div class="goal-focus">
-      <div class="goal-focus-head">
-        <div class="goal-focus-title">${MONTHS[focusM]} ${currentYear}</div>
-        <div class="goal-focus-sub">
-          <span class="${focusCls}">${focusActual > 0 ? fmtEUR(focusActual) : '—'}</span>
-          <span class="goal-focus-sep">/ ${focusPlanned > 0 ? fmtEUR(focusPlanned) : '—'} prévu</span>
-        </div>
-      </div>
-      <div class="goal-focus-list">`;
-
-  if (focusRows.length === 0) {
-    html += `<div class="goal-focus-empty">Aucune dépense ni objectif ce mois-ci.</div>`;
-  }
-  const focusRowHtml = (cat, f, isChild) => {
-    const barWidth = f.denom ? Math.min(100, f.total / f.denom * 100).toFixed(0) : 0;
-    const val = f.denom
-      ? `<span class="${f.cls}">${fmtCompact(f.total)}</span><span class="gcell-lim"> / ${fmtCompact(f.denom)}</span>`
-      : `<span class="${f.cls}">${f.total > 0 ? fmtCompact(f.total) : '—'}</span>`;
-    const parent = childrenOf(cat.id).length > 0;
-    const expanded = state.goalsExpanded.has(cat.id);
-    const caret = parent
-      ? `<button class="gfocus-caret" data-expand="${cat.id}" aria-label="${expanded ? 'Replier' : 'Déplier'}">${expanded ? '▾' : '▸'}</button>`
-      : (isChild ? '<span class="gfocus-caret gfocus-childmark">↳</span>' : '<span class="gfocus-caret"></span>');
-    return `
-      <div class="gfocus-row${isChild ? ' gfocus-child' : ''}">
-        ${caret}
-        <span class="goal-dot" style="background:${cat.color}"></span>
-        <span class="gfocus-name">${cat.label}</span>
-        <div class="gfocus-bar-wrap">${f.denom ? `<div class="gfocus-bar ${f.cls}" style="width:${barWidth}%"></div>` : ''}</div>
-        <span class="gfocus-val">${val}</span>
-      </div>`;
+  const barHtml = f => {
+    if (!f.goal) return '';
+    const w = Math.min(100, f.total / f.goal * 100).toFixed(0);
+    return `<div class="obj-bar"><div class="obj-bar-fill ${goalClass(f.total, f.goal)}" style="width:${w}%"></div></div>`;
   };
-  for (const { cat, f } of focusRows) {
-    html += focusRowHtml(cat, f, false);
-    if (childrenOf(cat.id).length && state.goalsExpanded.has(cat.id)) {
-      for (const child of childrenOf(cat.id)) {
-        html += focusRowHtml(child, catFigures(child, focusM), true);
+
+  const opsHtml = catId => {
+    const rows = goalOpsRows(catId, year, month);
+    if (!rows.length) return `<ul class="obj-ops"><li class="obj-ops-empty">Aucune opération ce mois-ci.</li></ul>`;
+    return `<ul class="obj-ops">${rows.map(r => `
+      <li class="obj-op${r.recur ? ' is-recur' : ''}">
+        <span class="obj-op-day">${String(r.day).padStart(2, '0')}/${String(month + 1).padStart(2, '0')}</span>
+        <span class="obj-op-label" title="${r.label}">${r.recur ? '↺ ' : ''}${r.label}</span>
+        <span class="obj-op-amount">−${fmtEUR(r.amount)}</span>
+      </li>`).join('')}</ul>`;
+  };
+
+  // Une ligne. key = clé de dépliage ; isGroup = parent agrégé (non éditable)
+  const rowHtml = ({ cat, f, key, isGroup, isChild, label, muted }) => {
+    const open = state.goalsExpanded.has(key);
+    let inner = '';
+    if (open) {
+      if (isGroup) {
+        const kids = childrenOf(cat.id)
+          .map(c => ({ c, f: goalCatFigures(c.id, year, month) }))
+          .filter(({ c, f }) => !c.archived || f.total > 0)
+          .sort(byWeight);
+        inner = `<ul class="obj-sublist">${kids.map(({ c, f }) =>
+          rowHtml({ cat: c, f, key: c.id, isGroup: false, isChild: true })).join('')}`;
+        const direct = goalCatFigures(cat.id, year, month);
+        if (hasData(direct)) {
+          inner += rowHtml({ cat, f: direct, key: `${cat.id}:direct`, isGroup: false, isChild: true,
+            label: `${cat.label} (sans sous-catégorie)` });
+        }
+        inner += `</ul>`;
+      } else {
+        inner = opsHtml(cat.id);
       }
     }
-  }
-  html += `</div></div>`;
+    const editable = !isGroup && !key.endsWith(':direct') && !cat.archived;
+    return `
+      <li class="obj-row${isChild ? ' obj-child' : ''}${open ? ' open' : ''}${muted ? ' is-muted' : ''}">
+        <div class="obj-row-main" data-toggle="${key}" role="button" tabindex="0" aria-expanded="${open}">
+          <span class="obj-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <span class="obj-dot" style="background:${cat.color}"></span>
+          <span class="obj-name">${label || cat.label}${cat.archived ? ' <span class="obj-archived">archivée</span>' : ''}</span>
+          <span class="obj-val">${valHtml(cat.id, f, editable)}</span>
+        </div>
+        ${barHtml(f)}
+        ${inner}
+      </li>`;
+  };
 
-  // ── Aperçu année : heatmap (couleur = ratio, clic = met le mois en avant) ──
-  const abbrev = label => label
-    .replace('Abonnements', 'Abo.')
-    .replace(' Loisirs', ' L.')
-    .replace(' Appart', ' A.');
-
-  html += `
-    <div class="goals-year-header">${currentYear} <span class="goals-year-hint">— touchez un mois</span></div>
-    <div class="goals-year-wrap">
-      <table class="goals-year-table goals-heat">
-        <thead><tr>
-          <th>Mois</th>
-          ${tableCats.map(c => `<th title="${c.label}"><span class="goal-dot" style="background:${c.color};display:inline-block;margin-right:2px;vertical-align:middle"></span>${abbrev(c.label)}</th>`).join('')}
-          <th>Total</th>
-        </tr></thead>
-        <tbody>`;
-
-  for (let m = 0; m < 12; m++) {
-    const isCurrent = m === nowMonth && currentYear === nowYear;
-    const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
-    const isPast    = !isCurrent && !isFuture;
-
-    let rowActual = 0, rowPlanned = 0;
-    const cells = tableCats.map(cat => {
-      const f = groupFigures(cat, m);
-      rowActual  += f.total;
-      rowPlanned += f.planned;
-      let display = '—', cls = f.cls;
-      if (f.total > 0)            display = fmtCompact(f.total);
-      else if (f.goal && !isPast) { display = `<span class="gcell-lim">${fmtCompact(f.goal)}</span>`; cls = ''; }
-      return `<td class="gcell-amount ${cls}">${display}</td>`;
-    }).join('');
-
-    const totalCls  = goalClass(rowActual, rowPlanned);
-    const totalCell = (rowActual > 0 || rowPlanned > 0)
-      ? `<span class="${totalCls}">${rowActual > 0 ? fmtCompact(rowActual) : '—'}</span>${rowPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(rowPlanned)}</span>` : ''}`
-      : '—';
-
-    const rowCls = [isCurrent ? 'cur-row' : '', m === focusM ? 'focus-row' : ''].filter(Boolean).join(' ');
-    html += `<tr class="${rowCls}" data-focus-month="${m}">
-      <td class="gcell-month">${MONTHS_SHORT[m]}</td>
-      ${cells}
-      <td class="gcell-total-c">${totalCell}</td>
-    </tr>`;
-  }
-
-  // Totaux annuels par colonne : réel / planifié
-  const colData = tableCats.map(cat => {
-    let actual = 0, planned = 0;
-    for (let m2 = 0; m2 < 12; m2++) {
-      const f = groupFigures(cat, m2);
-      actual  += f.total;
-      planned += f.planned;
-    }
-    return { actual, planned };
+  const tops = topLevelExpenseCats().map(cat => {
+    const isGroup = childrenOf(cat.id).length > 0;
+    return { cat, isGroup, f: figs(cat, isGroup) };
   });
-  const grandActual  = colData.reduce((s, { actual }) => s + actual, 0);
-  const grandPlanned = colData.reduce((s, { planned }) => s + planned, 0);
+  const shown  = tops.filter(t => hasData(t.f) && (!t.cat.archived || t.f.total > 0)).sort(byWeight);
+  const others = tops.filter(t => !hasData(t.f) && !t.cat.archived);
 
-  const tFootCells = colData.map(({ actual, planned }) => {
-    const cls = goalClass(actual, planned);
-    return `<td class="gcell-amount ${cls}">${actual > 0 ? fmtCompact(actual) : '—'}</td>`;
-  }).join('');
-  const grandCls = goalClass(grandActual, grandPlanned);
+  let html = `
+    <div class="obj">
+      <div class="obj-head">
+        <button class="cal-nav-btn" id="obj-prev" aria-label="Mois précédent">&#8592;</button>
+        <h2 class="obj-month">${MONTHS[month]} ${year}</h2>
+        <button class="cal-nav-btn" id="obj-next" aria-label="Mois suivant">&#8594;</button>
+      </div>
+      <div class="obj-total">
+        <div class="obj-total-line">
+          <span class="obj-total-real ${totalCls}">${fmtEUR(real)}</span>
+          <span class="obj-total-goal">${planned > 0 ? `/ ${fmtEUR(planned)} prévu` : 'aucun objectif ce mois-ci'}</span>
+          ${pct !== null ? `<span class="obj-total-pct ${totalCls}">${pct} %</span>` : ''}
+        </div>
+        ${planned > 0 ? `<div class="obj-bar obj-bar--total"><div class="obj-bar-fill ${totalCls}" style="width:${Math.min(100, pct)}%"></div></div>
+        <div class="obj-total-rest">${diff >= 0 ? `Reste ${fmtEUR(diff)}` : `Dépassé de ${fmtEUR(-diff)}`}</div>` : ''}
+      </div>
+      <ul class="obj-list">`;
+  if (!shown.length) html += `<li class="obj-empty">Aucune dépense ni objectif ce mois-ci.</li>`;
+  for (const t of shown) html += rowHtml({ ...t, key: t.cat.id });
+  html += `</ul>`;
 
-  html += `</tbody>
-    <tfoot>
-      <tr class="goals-foot">
-        <td class="gcell-month">Total</td>
-        ${tFootCells}
-        <td class="gcell-total-c">
-          <span class="${grandCls}">${grandActual > 0 ? fmtCompact(grandActual) : '—'}</span>${grandPlanned > 0 ? `<span class="gcell-lim">/${fmtCompact(grandPlanned)}</span>` : ''}
-        </td>
-      </tr>
-    </tfoot>
-  </table></div>`;
+  if (others.length) {
+    html += `
+      <button type="button" class="obj-others-toggle" id="obj-others" aria-expanded="${state.goalsShowOthers}">
+        ${state.goalsShowOthers ? '▾' : '▸'} Autres catégories (${others.length})
+      </button>`;
+    if (state.goalsShowOthers) {
+      html += `<ul class="obj-list obj-list--others">${others.map(t => rowHtml({ ...t, key: t.cat.id, muted: true })).join('')}</ul>`;
+    }
+  }
+  html += `</div>`;
   container.innerHTML = html;
 
-  // Evenements
-  attachGoalsSubTabs(container);
-  // Déplier/replier un parent dans la liste « mois en avant » (avant le clic mois)
-  container.querySelectorAll('.gfocus-caret[data-expand]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const id = btn.dataset.expand;
-      if (state.goalsExpanded.has(id)) state.goalsExpanded.delete(id);
-      else state.goalsExpanded.add(id);
-      renderGoals();
+  // Évènements
+  $('obj-prev').addEventListener('click', prevMonth);
+  $('obj-next').addEventListener('click', nextMonth);
+  const others$ = $('obj-others');
+  if (others$) others$.addEventListener('click', () => { state.goalsShowOthers = !state.goalsShowOthers; renderGoals(); });
+
+  const toggle = key => {
+    if (state.goalsExpanded.has(key)) state.goalsExpanded.delete(key);
+    else state.goalsExpanded.add(key);
+    renderGoals();
+  };
+  container.querySelectorAll('[data-toggle]').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.obj-goal, .obj-goal-input')) return;
+      toggle(el.dataset.toggle);
+    });
+    el.addEventListener('keydown', e => {
+      if (e.target !== el) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(el.dataset.toggle); }
     });
   });
-  container.querySelectorAll('[data-focus-month]').forEach(tr => {
-    tr.addEventListener('click', () => {
-      state.focusMonth = +tr.dataset.focusMonth;
-      renderGoals();
-    });
-  });
-  container.querySelectorAll('.btn-set-goal').forEach(btn => {
+  container.querySelectorAll('.obj-goal').forEach(btn => {
     btn.addEventListener('click', () => {
-      state.editingGoal = btn.dataset.cat;
+      state.editingGoal = btn.dataset.goal;
       renderGoals();
-      const inp = $(`goal-input-${btn.dataset.cat}`);
+      const inp = $(`goal-input-${btn.dataset.goal}`);
       if (inp) { inp.focus(); inp.select(); }
     });
   });
-  container.querySelectorAll('.btn-goal-confirm').forEach(btn => {
-    btn.addEventListener('click', () => saveGoal(btn.dataset.cat));
-  });
-  container.querySelectorAll('.btn-goal-cancel').forEach(btn => {
-    btn.addEventListener('click', () => { state.editingGoal = null; renderGoals(); });
-  });
-  container.querySelectorAll('.goal-edit-input').forEach(input => {
-    input.addEventListener('keydown', e => {
-      const cat = input.closest('[data-cat]').dataset.cat;
-      if (e.key === 'Enter')  saveGoal(cat);
-      if (e.key === 'Escape') { state.editingGoal = null; renderGoals(); }
+  container.querySelectorAll('[data-goal-input]').forEach(inp => {
+    const cat = inp.dataset.goalInput;
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); saveGoal(cat); }
+      if (e.key === 'Escape') { e.stopPropagation(); state.editingGoal = null; renderGoals(); }
     });
-  });
-}
-
-// Sous-page Détail : pour une catégorie, le détail mois par mois des opérations
-function renderGoalsDetail(container) {
-  const { currentYear } = state;
-  const nowMonth = today.getMonth();
-  const nowYear  = today.getFullYear();
-
-  const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && (!c.archived || catUsedInYear(c.id, currentYear)));
-  if (!tableCats.some(c => c.id === state.detailCat)) {
-    state.detailCat = tableCats[0]?.id ?? null;
-  }
-  const cat     = getCat(state.detailCat);
-  const ids     = familyIds(cat.id);   // parent → lui-même + ses sous-catégories
-  const isGroup = ids.length > 1;
-
-  let html = goalsSubTabsHtml();
-
-  // Sélecteur de catégorie (puces), ordonné hiérarchiquement (enfants indentés)
-  html += `<div class="detail-chips">`;
-  forEachCategoryOrdered((c, isChild) => {
-    if (!tableCats.includes(c)) return;
-    const on = c.id === state.detailCat;
-    html += `<button class="detail-chip ${on ? 'active' : ''}${isChild ? ' detail-chip-child' : ''}" data-detail-cat="${c.id}">
-      <span class="goal-dot" style="background:${c.color}"></span>${isChild ? '↳ ' : ''}${c.label}
-    </button>`;
-  }, true);
-  html += `</div>`;
-
-  // Bilan annuel de la catégorie. Les récurrences attendues sont affichées
-  // comme des opérations (rappels ↺) et incluses dans le total montré, en
-  // cohérence avec la vue Synthèse (total = réel + récurrences).
-  let yearShown = 0, yearPlanned = 0;
-  const months = [];
-  for (let m = 0; m < 12; m++) {
-    const dim = daysIn(currentYear, m);
-    const ym  = ymKey(currentYear, m);
-
-    // Un parent agrège ses sous-catégories : on inclut les opérations de toute
-    // la famille (chaque ligne garde sa sous-catégorie d'origine).
-    const realRows = getMonthData(currentYear, m)
-      .filter(e => e.type === 'depense' && ids.includes(e.category))
-      .map(e => ({ day: +e.date.slice(8, 10), label: e.label, amount: e.amount, recur: false, catId: e.category }));
-
-    const recurRows = [];
-    for (const t of state.recurring) {
-      if (t.type !== 'depense' || !ids.includes(t.category)) continue;
-      const ov  = getOverride(t.id, ym);
-      const amt = ov ? ov.amount : t.amount;
-      if (!(amt > 0)) continue;
-      const realized = realizedRecurDays(t, currentYear, m);
-      for (const d of t.days) {
-        if (d <= dim && !realized.has(d)) recurRows.push({ day: d, label: t.label, amount: amt, recur: true, catId: t.category });
-      }
-    }
-
-    const rows    = [...realRows, ...recurRows].sort((a, b) => a.day - b.day || (a.recur - b.recur));
-    const shown   = rows.reduce((s, x) => s + x.amount, 0);
-    const goal    = ids.reduce((s, id) => s + (getGoalForMonth(id, currentYear, m) || 0), 0) || null;
-    const planned = goal || 0;
-    const denom   = goal || null;
-    yearShown   += shown;
-    yearPlanned += planned;
-    months.push({ m, rows, shown, denom });
-  }
-  const yearCls = goalClass(yearShown, yearPlanned);
-
-  html += `<div class="detail-head">
-    <div class="detail-head-title"><span class="goal-dot" style="background:${cat.color}"></span>${cat.label}${isGroup ? ' <span class="detail-head-group">total sous-catégories</span>' : ''} <span class="detail-head-year">${currentYear}</span></div>
-    <div class="detail-head-sub">
-      <span class="${yearCls}">${yearShown > 0 ? fmtEUR(yearShown) : '—'}</span>
-      <span class="detail-head-sep">/ ${yearPlanned > 0 ? fmtEUR(yearPlanned) : '—'} prévu</span>
-    </div>
-  </div>`;
-
-  // Accordéon mois par mois
-  html += `<div class="detail-months">`;
-  for (const { m, rows, shown, denom } of months) {
-    const isCurrent = m === nowMonth && currentYear === nowYear;
-    const isFuture  = currentYear > nowYear || (currentYear === nowYear && m > nowMonth);
-    const open      = m === state.detailMonth;
-    const cls       = denom ? goalClass(shown, denom) : '';
-    const barWidth  = denom ? Math.min(100, shown / denom * 100).toFixed(0) : 0;
-
-    const right = denom
-      ? `<span class="${cls}">${fmtCompact(shown)}</span><span class="gcell-lim"> / ${fmtCompact(denom)}</span>`
-      : `<span class="${cls}">${shown > 0 ? fmtCompact(shown) : '—'}</span>`;
-
-    html += `<div class="detail-month ${open ? 'open' : ''}">
-      <button class="detail-month-head ${isCurrent ? 'cur' : ''}" data-detail-month="${m}" aria-expanded="${open}">
-        <span class="detail-caret">${open ? '▾' : '▸'}</span>
-        <span class="detail-month-name">${MONTHS[m]}</span>
-        <span class="detail-month-count">${rows.length > 0 ? rows.length + (rows.length > 1 ? ' opérations' : ' opération') : ''}</span>
-        <span class="detail-month-bar">${denom ? `<span class="detail-bar ${cls}" style="width:${barWidth}%"></span>` : ''}</span>
-        <span class="detail-month-val">${right}</span>
-      </button>`;
-
-    if (open) {
-      html += `<ul class="detail-ops">`;
-      if (rows.length === 0) {
-        html += `<li class="detail-empty">Aucune opération${isFuture ? ' (mois à venir)' : ''}.</li>`;
-      } else {
-        for (const row of rows) {
-          const sub = isGroup ? (() => { const sc = getCat(row.catId); return `<span class="detail-op-sub"><span class="goal-dot" style="background:${sc.color}"></span>${sc.label}</span>`; })() : '';
-          html += `<li class="detail-op${row.recur ? ' is-recur' : ''}">
-            <span class="detail-op-day">${String(row.day).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}</span>
-            <span class="detail-op-label">${row.recur ? '<span class="detail-op-recur">↺</span> ' : ''}<span class="detail-op-text" title="${row.label}">${row.label}</span>${sub}</span>
-            <span class="detail-op-amount depense">-${fmtEUR(row.amount)}</span>
-          </li>`;
-        }
-      }
-      html += `</ul>`;
-    }
-    html += `</div>`;
-  }
-  html += `</div>`;
-
-  container.innerHTML = html;
-
-  // Evenements
-  attachGoalsSubTabs(container);
-  container.querySelectorAll('[data-detail-cat]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.detailCat = btn.dataset.detailCat;
-      renderGoals();
-    });
-  });
-  container.querySelectorAll('[data-detail-month]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const m = +btn.dataset.detailMonth;
-      state.detailMonth = state.detailMonth === m ? -1 : m; // accordéon : referme si déjà ouvert
-      renderGoals();
-    });
+    inp.addEventListener('blur', () => { if (state.editingGoal === cat) saveGoal(cat); });
   });
 }
 
@@ -2358,16 +2157,22 @@ function setView(view) {
 // Navigation mois
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Le calendrier et les Objectifs partagent le mois courant
+function monthChanged() {
+  closePanel();
+  if (state.view === 'goals') renderGoals();
+}
+
 function prevMonth() {
   if (state.currentMonth === 0) { state.currentMonth = 11; state.currentYear--; }
   else state.currentMonth--;
-  closePanel();
+  monthChanged();
 }
 
 function nextMonth() {
   if (state.currentMonth === 11) { state.currentMonth = 0; state.currentYear++; }
   else state.currentMonth++;
-  closePanel();
+  monthChanged();
 }
 
 function goToday() {

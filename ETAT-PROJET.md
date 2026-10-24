@@ -93,7 +93,7 @@ Tables : `users`, `expenses`, `recurring_tasks`, `goals`, `categories`, `plan_da
 ## 4. Archive : la page Planning (retirée le 24/10/2026)
 
 ### Ce qu'elle faisait
-Elle permettait des **objectifs dynamiques au jour** pour certaines catégories : par exemple « Dijon Loisirs = 23 €/jour × nombre de jours passés à Dijon dans le mois ». Elle répondait au besoin de vivre entre deux villes (Besançon / Dijon), voir `Jour-besac-dijon.md` et `prix-activité-jour.md`.
+Elle permettait des **objectifs dynamiques au jour** pour certaines catégories : par exemple « Dijon Loisirs = 23 €/jour × nombre de jours passés à Dijon dans le mois ». Elle répondait au besoin de vivre entre deux villes (Besançon / Dijon), voir `docs/archive-planning/Jour-besac-dijon.md` et `docs/archive-planning/prix-activité-jour.md`.
 
 **Fonctionnement :**
 1. Dans **Catégories**, on passait une catégorie en mode **« Au jour »** (`cat.mode = 'jour'`, `updateCatMode`) et on lui donnait un **tarif de base €/j** (`savePlanBaseRate` → table `plan_rates`).
@@ -118,7 +118,7 @@ Elle permettait des **objectifs dynamiques au jour** pour certaines catégories 
 | `app.js` | `PLAN_KEY`, `normalizePlan`, `planStore` / `PlanDB`, `state.plan`, helpers `planDates`, `planHasDay`, `planCountInMonth`, `setPlanDayLocal`, `cachePlan`, `planBaseRate`, `planOverride`, `effectiveRate`, `setPlanOverrideLocal`, `getDynamicGoal`, `catMode`, `updateCatMode` ; vue `renderPlanning`, `wirePlanning`, `paintPlanCell`, `endPlanPaint`, `savePlanBaseRate`, `savePlanMonthRate`, `resetPlanMonthRate` ; branches `'jour'` dans `getGoalForMonth`, `renderGoals` et `renderCategories` ; écouteurs `pointerup` / `pointercancel` |
 | `style.css` | bloc « Vue Planning » (`.plan-*`), `.goal-rate-card`, `.cat-mode-*`, `.cat-rate-*` |
 | `api/plan.js` | GET / POST (batch `add` / `remove` / `rates` / `overrides`), scopé par `user_id` |
-| SQL | `migrate-plan.sql` (`plan_days`, `plan_rates`), `migrate-plan-overrides.sql`, `migrate-cat-mode.sql` (colonne `categories.mode`) |
+| SQL | `migrations/migrate-plan.sql` (`plan_days`, `plan_rates`), `migrations/migrate-plan-overrides.sql`, `migrations/migrate-cat-mode.sql` (colonne `categories.mode`) |
 
 ### Ce qui a été conservé pour pouvoir la remettre
 - **Back-end intact** : `api/plan.js` et les tables `plan_days`, `plan_rates` et `plan_rate_overrides` restent en place. **Aucune donnée n'a été supprimée.**

@@ -3,7 +3,7 @@ const { withDb } = require('./_lib');
 // Miroir de DEFAULT_CATEGORY / INCOME_CATEGORY côté front
 const SYSTEM_CATEGORIES = ['autre', 'revenus'];
 
-// Auto-migration au cold start : colonne `archived` (cf. migrate-cat-archive.sql),
+// Auto-migration au cold start : colonne `archived` (cf. migrations/migrate-cat-archive.sql),
 // pour qu'un déploiement ne demande aucune étape manuelle sur la base.
 let schemaReady = false;
 async function ensureSchema(client) {

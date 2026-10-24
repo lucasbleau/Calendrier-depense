@@ -33,4 +33,4 @@ ALTER TABLE goals      DROP CONSTRAINT IF EXISTS goals_pkey;
 
 -- ➜ Déployer le code, puis CRÉER TON COMPTE via l'interface (inscription).
 -- ➜ Récupérer ton id :  SELECT id, username FROM users;
--- ➜ Reporter cet id dans migrate-multiuser-2.sql et l'exécuter.
+-- ➜ Reporter cet id dans migrations/migrate-multiuser-2.sql et l'exécuter.

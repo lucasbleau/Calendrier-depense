@@ -1,6 +1,6 @@
 -- À exécuter une seule fois dans Vercel Postgres (onglet "Query" du dashboard)
 -- Schéma multi-utilisateurs. Pour migrer une base mono-utilisateur existante,
--- utiliser plutôt migrate-multiuser-1.sql puis migrate-multiuser-2.sql.
+-- utiliser plutôt migrations/migrate-multiuser-1.sql puis migrations/migrate-multiuser-2.sql.
 
 CREATE TABLE IF NOT EXISTS users (
   id           TEXT PRIMARY KEY,

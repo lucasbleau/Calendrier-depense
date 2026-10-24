@@ -2,7 +2,9 @@
 
 ## Contexte projet
 
-Application web personnelle de suivi de dépenses au format calendrier mensuel/annuel. Outil destiné à un usage personnel (utilisateur unique, pas de multi-compte). Déployée sur Vercel, repo GitHub : github.com/lucasbleau/Calendrier-depense.
+Application web personnelle de suivi de dépenses au format calendrier mensuel/annuel. Outil personnel ouvert à un cercle de confiance (multi-comptes, inscription libre, données isolées par compte). Déployée sur Vercel, repo GitHub **public** : github.com/lucasbleau/Calendrier-depense — ne jamais y committer d'identifiant ou de donnée personnelle.
+
+État détaillé avant la phase de simplification (rôle de chaque page, archive du Planning) : `ETAT-PROJET.md`.
 
 ## Objectif fonctionnel
 
@@ -41,9 +43,9 @@ Deux modes complémentaires :
 ### Catégories
 
 - Liste dynamique, éditable dans l'onglet **Catégories**
-- Défauts : Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre
-- Chaque catégorie : `id` (slug généré), `label`, `color` (hex)
-- Persistance : `localStorage` clé `expense-calendar-categories-v1` (config utilisateur, pas sync serveur)
+- Déployé : un nouveau compte ne reçoit que `Revenus` et `Autre` (seed d'`api/auth.js`) ; en local, liste par défaut codée dans `app.js` (`let CATEGORIES`)
+- Chaque catégorie : `id` (slug généré, rendu unique), `label`, `color` (hex), `parent?`, `archived?`
+- Persistance : table `categories` (déployé, cache `localStorage` par compte) ou `localStorage` `expense-calendar-categories-v1` (local)
 - **Archivage** (`archived`) pour les catégories qui ne servent plus ; suppression réservée aux catégories jamais utilisées (cf. Vue Catégories)
 
 ### Vue Statistiques
@@ -94,9 +96,9 @@ Page supprimée du front lors de la simplification (avec le mode « au jour » e
 - Liste toutes les catégories avec swatch couleur + label éditable inline
 - **Modifier la couleur** : clic sur le rond → color picker natif (mise à jour en live)
 - **Modifier le nom** : clic sur le texte, édition directe, confirmation au blur ou Entrée
-- **Sous-catégories** (hiérarchie 2 niveaux, champ `parent`, `updateCatParent`) : menu « Parent » par catégorie pour la rattacher à une catégorie de premier niveau. Affichage hiérarchique (enfants indentés ↳ sous leur parent). Une catégorie ayant des enfants devient un **groupe** (badge « groupe · Σ ») : pas de config d'objectif propre, elle agrège ses sous-catégories (+ ses dépenses directes) dans Objectifs et Stats. Un parent n'est pas supprimable tant qu'il a des enfants (helpers `childrenOf`, `isParent`, `topLevelExpenseCats`, `familyIds`).
+- **Sous-catégories** (hiérarchie 2 niveaux, champ `parent`, `updateCatParent`) : menu « Parent » par catégorie pour la rattacher à une catégorie de premier niveau. Affichage hiérarchique (enfants indentés ↳ sous leur parent). Une catégorie ayant des enfants **actifs** devient un **groupe** (badge « groupe · Σ ») : elle agrège ses sous-catégories (+ ses dépenses directes) dans Objectifs et Stats ; son objectif est la somme de ses sous-catégories ou un plafond global fixé dans Objectifs. Un parent n'est pas supprimable tant qu'il a des enfants (helpers `childrenOf`, `isParent`, `topLevelExpenseCats`, `familyIds`).
 - **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter`
-- **Archiver** (`setCatArchived`, champ `archived`) : bouton par ligne. La catégorie disparaît des menus de saisie/récurrence, des cartes d'objectifs, du menu Parent et de l'auto-catégorisation (`guessCategory`) ; son objectif manuel est ignoré (`getGoalForMonth` → null). Ses opérations **gardent leur catégorie** (nom + couleur) dans calendrier, panneau, recherche et Stats ; Objectifs (tableau + Détail) l'affichent encore pour une année où elle a servi (`catUsedInYear`). Bloqué si système, si sous-catégories actives, ou si une récurrence l'utilise. Section repliée « Archivées (n) » en bas avec **Restaurer** (remise au premier niveau si son parent est archivé/disparu). `isParent` ne compte que les enfants actifs ; `childrenOf` garde les archivés pour l'agrégation. `forEachCategoryOrdered(cb, all)` exclut les archivées sauf `all`. Éditer une opération d'une catégorie archivée ajoute l'option « (archivée) » au menu.
+- **Archiver** (`setCatArchived`, champ `archived`) : bouton par ligne. La catégorie disparaît des menus de saisie/récurrence, des cartes d'objectifs, du menu Parent et de l'auto-catégorisation (`guessCategory`) ; son objectif manuel est ignoré (`getGoalForMonth` → null). Ses opérations **gardent leur catégorie** (nom + couleur) dans calendrier, panneau, recherche et Stats ; elle n'apparaît plus du tout dans Objectifs. Bloqué si système, si sous-catégories actives, ou si une récurrence l'utilise. Section repliée « Archivées (n) » en bas avec **Restaurer** (remise au premier niveau si son parent est archivé/disparu). `isParent` ne compte que les enfants actifs ; `childrenOf` garde les archivés pour l'agrégation. `forEachCategoryOrdered(cb, all)` exclut les archivées sauf `all`. Éditer une opération d'une catégorie archivée ajoute l'option « (archivée) » au menu.
 - **Fusionner** (`mergeCategory`, catégories archivées uniquement) : menu « Fusionner dans… » (cibles = catégories actives hors Revenus). Ses opérations **et** récurrences passent dans la cible, son objectif manuel est supprimé, ses sous-catégories remontent au premier niveau, puis elle est supprimée. Côté API : `POST /api/categories {action:'merge', from, to}` en une transaction (refus si `from` est système ou si l'une des deux n'existe pas). Confirmation annonçant le nombre d'éléments déplacés ; action définitive.
 - **Supprimer** : ✕ actif uniquement si catégorie non système, sans sous-catégorie active, sans opération ni récurrence (`catDeleteInfo`) — sinon on l'archive. L'objectif manuel est supprimé avec elle (même transaction côté API). Modal de confirmation.
 - Modifications propagées instantanément aux dropdowns des modals
@@ -119,7 +121,7 @@ Page supprimée du front lors de la simplification (avec le mode « au jour » e
 ### Stack actuelle
 
 - **Vanilla HTML/CSS/JS** — aucun build step, fonctionne en ouvrant `index.html` directement
-- Chart.js 4.4 via CDN (graphiques bar + donut)
+- Graphiques en SVG générés à la main (`svgGroupedBars`), aucune librairie
 - `localStorage` pour la persistance en local (`file://` ou `localhost`)
 - `pg` ^8.13.0 (driver PostgreSQL standard) pour la persistance en production via Vercel Serverless
 - Polices : Fraunces (display) + JetBrains Mono (chiffres) + Inter (body) via Google Fonts
@@ -127,20 +129,23 @@ Page supprimée du front lors de la simplification (avec le mode « au jour » e
 ### Fichiers
 
 ```
-index.html      — structure HTML + liens scripts/styles
-style.css       — design complet (palette terreuse, responsive)
-app.js          — logique applicative complète
-package.json    — dépendance pg + engines.node 20.x
-schema.sql      — migrations à exécuter une fois dans la base Postgres
+index.html        — structure HTML + modales
+style.css         — design complet (palette terreuse, responsive)
+app.js            — logique applicative complète (front)
+package.json      — dépendance pg + engines.node 24.x (Node 20 n'est plus accepté par Vercel)
+schema.sql        — schéma complet pour une installation neuve
+ETAT-PROJET.md    — état du projet avant simplification + archive de la page Planning
 .gitignore
 api/
-  _lib.js       — pool pg, withDb (CORS+auth+user_id), tokens signés, hachage PIN scrypt, catégories par défaut
-  auth.js       — POST /api/auth : register / login (username + PIN), renvoie token signé
-  expenses.js   — GET / POST / PUT / DELETE : table expenses (scopée user_id)
-  recurring.js  — GET / POST / DELETE : table recurring_tasks (scopée user_id)
-  goals.js      — GET / POST / DELETE : table goals (scopée user_id)
-  categories.js — GET / POST / DELETE : table categories (scopée user_id, champ mode inclus)
-  plan.js       — GET / POST : tables plan_days + plan_rates + plan_rate_overrides (scopées user_id, POST batch add/remove/rates/overrides)
+  _lib.js         — pool pg, withDb (CORS + auth + user_id), tokens signés, hachage PIN scrypt, catégories par défaut
+  auth.js         — POST /api/auth : register / login (username + PIN), renvoie un token signé
+  expenses.js     — GET / POST / PUT / DELETE : table expenses
+  recurring.js    — GET / POST / DELETE : recurring_tasks ; ?overrides=1 et {action:'overrides'} : recurring_overrides (auto-migration)
+  goals.js        — GET / POST / DELETE : table goals
+  categories.js   — GET / POST / DELETE : table categories ; {action:'merge'} : fusion (auto-migration de `archived`)
+  plan.js         — Planning (page retirée) : conservé pour une éventuelle restauration
+migrations/       — scripts SQL historiques pour une base existante (cf. Tables SQL)
+docs/archive-planning/ — notes de l'ancien Planning (jours Besançon/Dijon, tarifs €/j)
 ```
 
 ### Modèle de données
@@ -176,12 +181,9 @@ type Category = {
 
 type Goals = Record<string, number>; // category → limite mensuelle en €
 
-type Plan = {
-  days:      Record<string, string[]>;             // category → dates YYYY-MM-DD « peintes »
-  rates:     Record<string, number>;               // category → tarif de base €/jour
-  overrides: Record<string, Record<string, number>>; // category → { 'YYYY-MM' → tarif surchargé ce mois }
-};
-// Objectif d'un mois = (override[cat][ym] ?? rates[cat]) × jours peints ce mois-là
+type RecurringOverride = { recurId: string; yearMonth: string; amount: number }; // montant d'un mois précis
+
+// Plan (Planning retiré) : cf. ETAT-PROJET.md §4
 ```
 
 ### Constantes clés (app.js)
@@ -198,6 +200,7 @@ type Plan = {
 | `expense-calendar-data-v1` | `Expense[]` |
 | `expense-calendar-recurring-v1` | `RecurringTask[]` |
 | `expense-calendar-goals-v1` | `Goals` |
+| `expense-calendar-recurring-overrides-v1` | `RecurringOverride[]` (local ; en déployé, cache du compte — l'ancienne clé non suffixée est migrée puis supprimée) |
 | `expense-calendar-plan-v1` | `Plan` (vue Planning retirée — clé plus lue) |
 | `expense-calendar-categories-v1` | `Category[]` (si modifié, sinon défauts hardcodés) |
 | `expense-calendar-auth-v1` | Token d'auth signé (sessionStorage) |
@@ -224,7 +227,7 @@ Deux modes détectés automatiquement (`IS_DEPLOYED` dans `app.js`) :
 
 La base est une **Prisma Postgres** (`db.prisma.io:5432`) accessible via `POSTGRES_URL`. Le driver `pg` est utilisé avec `ssl: { rejectUnauthorized: false }`.
 
-Les **catégories** sont toujours en localStorage (même en mode déployé) car c'est de la configuration utilisateur, pas des données financières.
+En mode déployé, toutes les données (opérations, récurrences et leurs montants mensuels, objectifs, catégories) sont en base ; `localStorage` ne sert que de cache hors ligne cloisonné par compte. Les tables ajoutées récemment (`recurring_overrides`, colonne `categories.archived`) sont créées par les routes elles-mêmes au cold start : aucun script à lancer.
 
 ### Tables SQL (cf. `schema.sql`)
 
@@ -240,7 +243,7 @@ plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif s
 recurring_overrides — (user_id, recur_id, ym) PK, amount, updated_at — montant d'une récurrence modifié pour un mois, FK recurring_tasks CASCADE (créée par api/recurring.js au cold start)
 ```
 
-> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`), `migrate-cat-mode.sql` (colonne `mode` sur `categories`), `migrate-plan-overrides.sql` (table `plan_rate_overrides`) et `migrate-cat-parent.sql` (colonne `parent` + FK auto-référente sur `categories`). La colonne `archived` (`migrate-cat-archive.sql`) est ajoutée automatiquement par `api/categories.js` au cold start (`ensureSchema`).
+> Installation neuve : `schema.sql` suffit. Base existante, scripts historiques dans `migrations/` : `migrate-multiuser-1.sql` puis `migrate-multiuser-2.sql` (passage multi-user ; **remplacer `TON_ID` localement, ne jamais committer le vrai id**), `migrate-recur-link.sql` (`expenses.recur_id`), `migrate-plan.sql` + `migrate-plan-overrides.sql` (tables `plan_*`), `migrate-cat-mode.sql` (`categories.mode`), `migrate-cat-parent.sql` (`categories.parent`). `migrate-cat-archive.sql` et `recurring_overrides` sont appliqués automatiquement par les routes (`ensureSchema`).
 
 ## Déploiement
 
@@ -249,10 +252,10 @@ recurring_overrides — (user_id, recur_id, ym) PK, amount, updated_at — monta
 ```
 Browser → /api/auth         → register/login, renvoie un token signé (user_id)
 Browser → /api/expenses     → Postgres (expenses WHERE user_id)       ← token requis
-Browser → /api/recurring    → Postgres (recurring_tasks WHERE user_id) ← token requis
+Browser → /api/recurring    → Postgres (recurring_tasks + recurring_overrides WHERE user_id) ← token requis
 Browser → /api/goals        → Postgres (goals WHERE user_id)           ← token requis
-Browser → /api/categories   → Postgres (categories WHERE user_id)      ← token requis
-Browser → /api/plan         → Postgres (plan_days + plan_rates WHERE user_id) ← token requis
+Browser → /api/categories   → Postgres (categories WHERE user_id, fusion) ← token requis
+Browser → /api/plan         → Postgres (plan_* WHERE user_id) — plus appelé par le front (Planning retiré)
 ```
 
 ### Variables d'environnement Vercel
@@ -265,33 +268,14 @@ Browser → /api/plan         → Postgres (plan_days + plan_rates WHERE user_id
 > `APP_PIN` / `APP_TOKEN` (ancien système mono-utilisateur) ne sont plus utilisés.
 > Si `APP_TOKEN_SECRET` n'est pas défini, un secret de dev par défaut est utilisé (à ne pas laisser en prod).
 
-### Structure du projet
-
-```
-/
-├── index.html
-├── style.css
-├── app.js
-├── package.json
-├── schema.sql
-├── .gitignore
-├── CLAUDE.md
-└── api/
-    ├── auth.js
-    ├── expenses.js
-    ├── recurring.js
-    └── goals.js
-```
-
 ### Procédure de déploiement initial
 
 1. **Créer le repo GitHub** et pousser le code
 2. **Importer sur Vercel** — framework "Other", déployer
-3. **Ajouter une base Postgres** (Vercel Storage → Postgres Neon ou Prisma Postgres externe)
-   - Définir `POSTGRES_URL` dans les env vars Vercel
-4. **Créer les tables** — coller `schema.sql` dans l'onglet Query de la base
-5. **Définir `APP_PIN` et `APP_TOKEN`** dans les env vars Vercel (Settings → Environment Variables)
-6. **Redéployer** (`git push` ou bouton Redeploy)
+3. **Ajouter une base Postgres** (Vercel Marketplace → Neon ou Prisma Postgres) et définir `POSTGRES_URL`
+4. **Créer les tables** — exécuter `schema.sql` dans l'onglet Query de la base
+5. **Définir `APP_TOKEN_SECRET`** (chaîne aléatoire longue) dans les env vars Vercel
+6. **Redéployer** (`git push` ou bouton Redeploy) ; chaque push sur `main` déploie en production
 
 > Le repo doit être **public** sur GitHub pour que le déploiement continu fonctionne sur un plan Vercel Hobby (limitation des comptes Équipe).
 
@@ -302,13 +286,15 @@ Browser → /api/plan         → Postgres (plan_days + plan_rates WHERE user_id
 - **Dépenses prévisionnelles** : distinction dépenses passées / planifiées
 - **Filtres** : par catégorie, par plage de montants, par mots-clés
 - **Multi-comptes** : ventiler entre compte courant, PEA, etc.
-- **Règles de catégorisation** : mappings mot-clé → catégorie personnalisables
+- **Règles de catégorisation** : mappings mot-clé → catégorie personnalisables (la catégorisation apprend déjà de l'historique)
+- **Rapprochement rétroactif** : lier aux récurrences les opérations importées avant le rapprochement automatique (elles restent comptées deux fois)
+- **Date de début des récurrences** : aujourd'hui une récurrence compte sur tous les mois passés (moyennes)
 - **PWA** : installation mobile, fonctionnement offline
 - **Tests** : Vitest pour la logique de parsing CSV et les calculs d'agrégation
 
 ## Conventions de code à respecter
 
-- Logique métier extraite en fonctions pures (`parseCSV`, `guessCategory`, `fmtEUR`, `sumByType`, etc.)
+- Logique métier extraite en fonctions pures (`detectAndParseCSV`, `guessCategory`, `linkImportToRecurrences`, `fmtEUR`, `sumByType`, etc.)
 - Accessibilité : labels explicites, navigation clavier sur les boutons et la grille calendrier
 - Format monétaire et dates toujours via les helpers — ne jamais réimplémenter inline
 - Pas de commentaires sauf si le WHY est non-évident

@@ -42,7 +42,7 @@ Deux modes complémentaires :
 - Défauts : Courses, Voiture, Essence, Appart, Abonnements, Loisirs, Dijon Loisirs, Dijon Appart, Besac Loisirs, Épargne, Revenus, Autre
 - Chaque catégorie : `id` (slug généré), `label`, `color` (hex)
 - Persistance : `localStorage` clé `expense-calendar-categories-v1` (config utilisateur, pas sync serveur)
-- Suppression impossible si catégorie utilisée par des opérations, parente de sous-catégories, ou système (`autre`, `revenus`)
+- **Archivage** (`archived`) pour les catégories qui ne servent plus ; suppression réservée aux catégories jamais utilisées (cf. Vue Catégories)
 
 ### Vue Statistiques
 
@@ -84,7 +84,8 @@ Page supprimée du front lors de la simplification (avec le mode « au jour » e
 - **Modifier le nom** : clic sur le texte, édition directe, confirmation au blur ou Entrée
 - **Sous-catégories** (hiérarchie 2 niveaux, champ `parent`, `updateCatParent`) : menu « Parent » par catégorie pour la rattacher à une catégorie de premier niveau. Affichage hiérarchique (enfants indentés ↳ sous leur parent). Une catégorie ayant des enfants devient un **groupe** (badge « groupe · Σ ») : pas de config d'objectif propre, elle agrège ses sous-catégories (+ ses dépenses directes) dans Objectifs et Stats. Un parent n'est pas supprimable tant qu'il a des enfants (helpers `childrenOf`, `isParent`, `topLevelExpenseCats`, `familyIds`).
 - **Ajouter** : formulaire en haut (nom + couleur), Entrée ou bouton `+ Ajouter`
-- **Supprimer** : ✕ actif uniquement si catégorie non système, sans sous-catégorie et non utilisée par des opérations (modal de confirmation)
+- **Archiver** (`setCatArchived`, champ `archived`) : bouton par ligne. La catégorie disparaît des menus de saisie/récurrence, des cartes d'objectifs, du menu Parent et de l'auto-catégorisation (`guessCategory`) ; son objectif manuel est ignoré (`getGoalForMonth` → null). Ses opérations **gardent leur catégorie** (nom + couleur) dans calendrier, panneau, recherche et Stats ; Objectifs (tableau + Détail) l'affichent encore pour une année où elle a servi (`catUsedInYear`). Bloqué si système, si sous-catégories actives, ou si une récurrence l'utilise. Section repliée « Archivées (n) » en bas avec **Restaurer** (remise au premier niveau si son parent est archivé/disparu). `isParent` ne compte que les enfants actifs ; `childrenOf` garde les archivés pour l'agrégation. `forEachCategoryOrdered(cb, all)` exclut les archivées sauf `all`. Éditer une opération d'une catégorie archivée ajoute l'option « (archivée) » au menu.
+- **Supprimer** : ✕ actif uniquement si catégorie non système, sans sous-catégorie active, sans opération ni récurrence (`catDeleteInfo`) — sinon on l'archive. L'objectif manuel est supprimé avec elle (même transaction côté API). Modal de confirmation.
 - Modifications propagées instantanément aux dropdowns des modals
 
 ### Authentification (multi-utilisateurs)
@@ -157,6 +158,7 @@ type Category = {
   color: string;         // couleur hex
   mode?: 'mois' | 'jour'; // hérité du Planning (retiré) — persisté mais ignoré par le front
   parent?: string;        // id de la catégorie parent si sous-catégorie (2 niveaux max)
+  archived?: boolean;     // archivée : masquée des menus, opérations conservées
 };
 
 type Goals = Record<string, number>; // category → limite mensuelle en €
@@ -218,13 +220,13 @@ users           — id (PK), username, username_lc (unique), pin_hash, pin_salt,
 expenses        — id (PK), user_id, date, label, amount, type, category, recur_id (FK recurring_tasks, SET NULL), created_at
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
 goals           — (user_id, category) PK, amount, updated_at
-categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), parent (FK self, SET NULL), created_at
+categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), parent (FK self, SET NULL), archived (bool), created_at
 plan_days       — (user_id, category, date) PK — jours peints (vue Planning, retirée — table conservée), FK categories CASCADE
 plan_rates      — (user_id, category) PK, rate, updated_at — tarif de base €/jour, FK categories CASCADE
 plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif surchargé pour un mois, FK categories CASCADE
 ```
 
-> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`), `migrate-cat-mode.sql` (colonne `mode` sur `categories`), `migrate-plan-overrides.sql` (table `plan_rate_overrides`) et `migrate-cat-parent.sql` (colonne `parent` + FK auto-référente sur `categories`).
+> Migration mono→multi-user : `migrate-multiuser-1.sql` (schéma) puis `migrate-multiuser-2.sql` (rattache les données existantes à un compte + finalise les PK/FK composites). `schema.sql` part directement en multi-user pour une installation neuve. Base existante : exécuter aussi `migrate-recur-link.sql` (colonne `recur_id` sur `expenses`), `migrate-plan.sql` (tables `plan_days`/`plan_rates`), `migrate-cat-mode.sql` (colonne `mode` sur `categories`), `migrate-plan-overrides.sql` (table `plan_rate_overrides`) et `migrate-cat-parent.sql` (colonne `parent` + FK auto-référente sur `categories`). La colonne `archived` (`migrate-cat-archive.sql`) est ajoutée automatiquement par `api/categories.js` au cold start (`ensureSchema`).
 
 ## Déploiement
 

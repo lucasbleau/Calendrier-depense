@@ -229,6 +229,7 @@ function setRecurOverride(recurId, ym, amount) {
 function guessCategory(label) {
   const lower = label.toLowerCase();
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (!CATEGORIES.some(c => c.id === cat && !c.archived)) continue;
     if (keywords.some(kw => lower.includes(kw))) return cat;
   }
   return DEFAULT_CATEGORY;
@@ -253,8 +254,23 @@ function childrenOf(parentId) {
   return CATEGORIES.filter(c => c.parent === parentId);
 }
 
+// Seuls les enfants actifs font d'une catégorie un « groupe » (config) ;
+// childrenOf garde les archivés pour l'agrégation des chiffres passés.
 function isParent(catId) {
-  return CATEGORIES.some(c => c.parent === catId);
+  return CATEGORIES.some(c => c.parent === catId && !c.archived);
+}
+
+// Catégorie archivée : masquée des menus et réglages, mais ses opérations
+// gardent leur catégorie (nom + couleur) dans l'historique et les stats.
+function isArchived(catId) {
+  return CATEGORIES.some(c => c.id === catId && c.archived);
+}
+
+// Une catégorie archivée reste visible dans les récaps d'une année où elle a servi.
+function catUsedInYear(catId, year) {
+  const ids = familyIds(catId);
+  const prefix = `${year}-`;
+  return state.expenses.some(e => ids.includes(e.category) && e.date.startsWith(prefix));
 }
 
 // Catégories de dépense de premier niveau (sans parent) — l'ordre d'affichage
@@ -295,11 +311,12 @@ function goalClass(actual, planned) {
 }
 
 // Catégories en ordre hiérarchique (parent puis ses sous-catégories indentées).
-// cb(cat, isChild) est appelé pour chaque catégorie.
-function forEachCategoryOrdered(cb) {
-  CATEGORIES.filter(c => !c.parent).forEach(cat => {
+// cb(cat, isChild) est appelé pour chaque catégorie ; archivées exclues sauf si all.
+function forEachCategoryOrdered(cb, all = false) {
+  const keep = c => all || !c.archived;
+  CATEGORIES.filter(c => !c.parent && keep(c)).forEach(cat => {
     cb(cat, false);
-    childrenOf(cat.id).forEach(child => cb(child, true));
+    childrenOf(cat.id).filter(keep).forEach(child => cb(child, true));
   });
 }
 
@@ -467,6 +484,7 @@ const state = {
   detailMonth:  today.getMonth(), // mois déplié dans la sous-page Détail
   goalsExpanded: new Set(), // ids des catégories parent dépliées (vue Objectifs)
   statsExpanded: new Set(), // ids des catégories parent dépliées (vue Stats)
+  catArchivedOpen: false,   // section « Archivées » dépliée (vue Catégories)
 };
 
 let modalRecurDays   = [];   // jours sélectionnés dans le modal récurrence
@@ -480,6 +498,7 @@ let pendingRecurId   = null; // id de la récurrence source quand l'opération e
 // Objectif mensuel « effectif » d'une catégorie (feuille) : valeur manuelle si
 // définie (elle remplace tout), sinon somme des récurrences du mois (objectif auto)
 function getGoalForMonth(categoryId, year, month) {
+  if (isArchived(categoryId)) return null;
   const manual = state.goals[categoryId];
   if (manual > 0) return manual;
   const r = recurExpected(categoryId, year, month);
@@ -1002,7 +1021,15 @@ function openAddModal(dateStr, prefill = null, editId = null, recurId = null) {
   $('add-label').value    = prefill?.label    || '';
   $('add-amount').value   = prefill?.amount   || '';
   $('add-type').value     = prefill?.type     || 'depense';
-  $('add-category').value = prefill?.category || DEFAULT_CATEGORY;
+  const catId = prefill?.category || DEFAULT_CATEGORY;
+  populateCategoryDropdowns();
+  if (isArchived(catId)) {
+    const opt = document.createElement('option');
+    opt.value = catId;
+    opt.textContent = `${getCat(catId).label} (archivée)`;
+    $('add-category').appendChild(opt);
+  }
+  $('add-category').value = catId;
   $('modal-add-title').textContent = editId ? 'Modifier l\'opération' : 'Nouvelle opération';
   $('modal-add').classList.remove('hidden');
   $('add-label').focus();
@@ -1236,9 +1263,9 @@ function renderGoals() {
   // Objectif par catégorie : somme des récurrences (auto) ou valeur manuelle.
   // Les vues récap (mois en avant + tableau année) regroupent par catégorie de
   // premier niveau (un parent agrège ses sous-catégories).
-  const tableCats = topLevelExpenseCats();
-  // La config d'objectif se règle sur les feuilles (catégories sans enfant).
-  const goalCats  = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && !isParent(c.id));
+  const tableCats = topLevelExpenseCats().filter(c => !c.archived || catUsedInYear(c.id, currentYear));
+  // La config d'objectif se règle sur les feuilles actives (sans enfant actif).
+  const goalCats  = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && !c.archived && !isParent(c.id));
 
   // Ligne de reglage / info des objectifs
   let html = goalsSubTabsHtml();
@@ -1487,7 +1514,7 @@ function renderGoalsDetail(container) {
   const nowMonth = today.getMonth();
   const nowYear  = today.getFullYear();
 
-  const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY);
+  const tableCats = CATEGORIES.filter(c => c.id !== INCOME_CATEGORY && (!c.archived || catUsedInYear(c.id, currentYear)));
   if (!tableCats.some(c => c.id === state.detailCat)) {
     state.detailCat = tableCats[0]?.id ?? null;
   }
@@ -1500,12 +1527,12 @@ function renderGoalsDetail(container) {
   // Sélecteur de catégorie (puces), ordonné hiérarchiquement (enfants indentés)
   html += `<div class="detail-chips">`;
   forEachCategoryOrdered((c, isChild) => {
-    if (c.id === INCOME_CATEGORY) return;
+    if (!tableCats.includes(c)) return;
     const on = c.id === state.detailCat;
     html += `<button class="detail-chip ${on ? 'active' : ''}${isChild ? ' detail-chip-child' : ''}" data-detail-cat="${c.id}">
       <span class="goal-dot" style="background:${c.color}"></span>${isChild ? '↳ ' : ''}${c.label}
     </button>`;
-  });
+  }, true);
   html += `</div>`;
 
   // Bilan annuel de la catégorie. Les récurrences attendues sont affichées
@@ -1657,7 +1684,7 @@ function renderCategories() {
   let html = `
     <div class="cat-mgmt-header">
       <h2 class="cat-mgmt-title">Catégories</h2>
-      <p class="cat-mgmt-subtitle">Gérez les catégories. Une catégorie peut être une <strong>sous-catégorie</strong> d'une autre (menu « Parent ») : le parent affiche alors la somme de ses sous-catégories. Suppression impossible si la catégorie est système, a des sous-catégories ou est utilisée par des opérations.</p>
+      <p class="cat-mgmt-subtitle">Gérez les catégories. Une catégorie peut être une <strong>sous-catégorie</strong> d'une autre (menu « Parent ») : le parent affiche alors la somme de ses sous-catégories. Une catégorie qui ne sert plus peut être <strong>archivée</strong> : elle disparaît des menus, ses opérations restent intactes. La suppression est réservée aux catégories jamais utilisées.</p>
     </div>
     <div class="cat-add-form">
       <input type="text" id="new-cat-label" placeholder="Nom de la catégorie…" class="cat-add-input" />
@@ -1672,11 +1699,14 @@ function renderCategories() {
   const renderCatRow = (cat, isChild) => {
     const isSystem   = cat.id === DEFAULT_CATEGORY || cat.id === INCOME_CATEGORY;
     const parentCat  = isParent(cat.id);
-    const usedCount  = state.expenses.filter(e => e.category === cat.id).length;
-    const canDelete  = !isSystem && !parentCat && usedCount === 0;
-    const delTitle   = isSystem ? 'Catégorie système'
-      : parentCat ? 'A des sous-catégories'
-      : (usedCount > 0 ? `${usedCount} opération(s) liée(s)` : 'Supprimer');
+    const { recurCount, canDelete, delTitle } = catDeleteInfo(cat);
+    const canArchive = !isSystem && !parentCat && recurCount === 0;
+    const archTitle  = parentCat ? 'A des sous-catégories'
+      : recurCount > 0 ? `${recurCount} récurrence(s) l'utilisent encore`
+      : 'Masquer des menus en gardant ses opérations';
+    const archiveBtn = isSystem ? '' : `
+      <button type="button" class="btn-archive-cat" data-id="${cat.id}"
+        ${canArchive ? '' : 'disabled'} title="${archTitle}">Archiver</button>`;
 
     const groupBadge = parentCat
       ? `<span class="cat-group-badge" title="Somme de ses sous-catégories">groupe · Σ</span>`
@@ -1687,7 +1717,7 @@ function renderCategories() {
     let parentSelect = '';
     if (!isSystem && !parentCat) {
       const opts = topLevelExpenseCats()
-        .filter(c => c.id !== cat.id)
+        .filter(c => c.id !== cat.id && !c.archived)
         .map(c => `<option value="${c.id}"${cat.parent === c.id ? ' selected' : ''}>${c.label}</option>`)
         .join('');
       parentSelect = `
@@ -1712,18 +1742,42 @@ function renderCategories() {
             <input type="text" class="cat-label-edit" value="${cat.label}" data-id="${cat.id}" />
           </div>
           <div class="cat-cell-parent">${parentSelect}</div>
-          <div class="cat-cell-mode">${groupBadge}</div>
+          <div class="cat-cell-mode">${groupBadge}${archiveBtn}</div>
         </div>
       </div>`;
   };
 
   // Affichage hiérarchique : catégories de premier niveau, enfants indentés dessous
-  CATEGORIES.filter(c => !c.parent).forEach(cat => {
-    html += renderCatRow(cat, false);
-    childrenOf(cat.id).forEach(child => { html += renderCatRow(child, true); });
-  });
-
+  forEachCategoryOrdered((cat, isChild) => { html += renderCatRow(cat, isChild); });
   html += `</div>`;
+
+  // Archivées : repliées en bas, restaurables, supprimables si jamais utilisées
+  const archived = CATEGORIES.filter(c => c.archived);
+  if (archived.length) {
+    html += `<details class="cat-archived" id="cat-archived"${state.catArchivedOpen ? ' open' : ''}>
+      <summary>Archivées (${archived.length})</summary>
+      <div class="cat-list-mgmt">`;
+    for (const cat of archived) {
+      const { usedCount, canDelete, delTitle } = catDeleteInfo(cat);
+      const name = cat.parent ? `${getCat(cat.parent).label} › ${cat.label}` : cat.label;
+      html += `
+        <div class="cat-mgmt-row cat-archived-row" data-id="${cat.id}">
+          <div class="cat-mgmt-item">
+            <div class="cat-cell-lead">
+              <button class="btn-icon btn-delete-cat" data-id="${cat.id}"
+                ${!canDelete ? 'disabled' : ''} title="${delTitle}">✕</button>
+              <span class="cat-color-swatch" style="background:${cat.color}"></span>
+              <span class="cat-archived-name">${name}</span>
+            </div>
+            <div class="cat-cell-parent cat-archived-count">${usedCount ? `${usedCount} opération(s) conservée(s)` : 'aucune opération'}</div>
+            <div class="cat-cell-mode">
+              <button type="button" class="btn-archive-cat btn-restore-cat" data-id="${cat.id}">Restaurer</button>
+            </div>
+          </div>
+        </div>`;
+    }
+    html += `</div></details>`;
+  }
   container.innerHTML = html;
 
   // Nouvelle catégorie
@@ -1752,10 +1806,57 @@ function renderCategories() {
     sel.addEventListener('change', e => updateCatParent(e.target.dataset.id, e.target.value));
   });
 
+  // Archivage / restauration
+  container.querySelectorAll('.btn-archive-cat:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () => setCatArchived(btn.dataset.id, !btn.classList.contains('btn-restore-cat')));
+  });
+  const archDetails = $('cat-archived');
+  if (archDetails) archDetails.addEventListener('toggle', () => { state.catArchivedOpen = archDetails.open; });
+
   // Suppression
   container.querySelectorAll('.btn-delete-cat:not([disabled])').forEach(btn => {
     btn.addEventListener('click', () => deleteCategory(btn.dataset.id));
   });
+}
+
+// Suppression possible seulement si la catégorie n'a jamais servi : sinon on
+// l'archive (les FK RESTRICT protègent opérations et récurrences côté base).
+function catDeleteInfo(cat) {
+  const isSystem   = cat.id === DEFAULT_CATEGORY || cat.id === INCOME_CATEGORY;
+  const parentCat  = isParent(cat.id);
+  const usedCount  = state.expenses.filter(e => e.category === cat.id).length;
+  const recurCount = state.recurring.filter(t => t.category === cat.id).length;
+  const canDelete  = !isSystem && !parentCat && usedCount === 0 && recurCount === 0;
+  const delTitle   = isSystem ? 'Catégorie système'
+    : parentCat ? 'A des sous-catégories'
+    : usedCount > 0 ? `${usedCount} opération(s) liée(s) : archivez-la plutôt`
+    : recurCount > 0 ? `${recurCount} récurrence(s) liée(s)`
+    : 'Supprimer';
+  return { usedCount, recurCount, canDelete, delTitle };
+}
+
+async function setCatArchived(id, archived) {
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat || !!cat.archived === archived) return;
+  const prev = { archived: cat.archived, parent: cat.parent };
+  cat.archived = archived;
+  // Restaurée sous un parent archivé ou disparu → remise au premier niveau
+  if (!archived && cat.parent && (isArchived(cat.parent) || !CATEGORIES.some(c => c.id === cat.parent))) {
+    cat.parent = undefined;
+  }
+  try {
+    await CatDB.upsert(cat);
+  } catch {
+    Object.assign(cat, prev);
+    showToast('Erreur lors de la sauvegarde');
+    renderCategories();
+    return;
+  }
+  populateCategoryDropdowns();
+  renderCategories();
+  showToast(archived
+    ? `« ${cat.label} » archivée — ses opérations sont conservées`
+    : `« ${cat.label} » restaurée`);
 }
 
 async function updateCatParent(id, parentId) {
@@ -1891,10 +1992,9 @@ function confirmModal({ title = 'Confirmer', message, okLabel = 'Confirmer', dan
 
 async function deleteCategory(id) {
   const cat = getCat(id);
-  const used = state.expenses.filter(e => e.category === id).length;
   const ok = await confirmModal({
     title: 'Supprimer la catégorie',
-    message: `Supprimer la catégorie « ${cat.label} » ?` + (used ? ` ${used} opération(s) y sont liées.` : '') + ' Cette action est définitive.',
+    message: `Supprimer la catégorie « ${cat.label} » ? Cette action est définitive.`,
     okLabel: 'Supprimer',
     danger: true,
   });
@@ -1906,7 +2006,13 @@ async function deleteCategory(id) {
     return;
   }
   CATEGORIES = CATEGORIES.filter(c => c.id !== id);
+  for (const c of CATEGORIES) if (c.parent === id) c.parent = undefined; // miroir du ON DELETE SET NULL
   localStorage.setItem(userCacheKey(CATEGORIES_KEY), JSON.stringify(CATEGORIES));
+  // L'objectif manuel part avec la catégorie (supprimé côté serveur dans la même requête)
+  if (state.goals[id] !== undefined) {
+    delete state.goals[id];
+    if (!IS_DEPLOYED) await GoalDB.remove(id);
+  }
   populateCategoryDropdowns();
   renderCategories();
   showToast('Catégorie supprimée');
@@ -1935,9 +2041,10 @@ function populateSearchCategory() {
   sel.innerHTML = '<option value="">Toutes catégories</option>';
   forEachCategoryOrdered((c, isChild) => {
     const o = document.createElement('option');
-    o.value = c.id; o.textContent = isChild ? ` ↳ ${c.label}` : c.label;
+    o.value = c.id;
+    o.textContent = (isChild ? ` ↳ ${c.label}` : c.label) + (c.archived ? ' (archivée)' : '');
     sel.appendChild(o);
-  });
+  }, true);
 }
 
 function renderSearchResults() {

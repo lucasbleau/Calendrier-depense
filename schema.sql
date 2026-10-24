@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS categories (
   color      TEXT        NOT NULL DEFAULT '#9A9888',
   mode       TEXT        NOT NULL DEFAULT 'mois', -- 'mois' (fixe) | 'jour' (tarif €/j, vue Planning)
   parent     TEXT,                                -- sous-catégorie : id de la catégorie parent (2 niveaux)
+  archived   BOOLEAN     NOT NULL DEFAULT FALSE,  -- archivée : masquée des menus, opérations conservées
   created_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, id),
   CONSTRAINT fk_categories_parent

@@ -1895,9 +1895,8 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
-  align-items: start;
 }
-.stats-charts .chart-card { margin-bottom: 0; }
+.stats-charts .chart-card { margin-bottom: 0; display: flex; flex-direction: column; }
 
 .chart-card {
   background: var(--surface);
@@ -1930,11 +1929,20 @@ body {
 .bar-rev-sw { background: var(--revenu); }
 
 /* SVG charts */
-.chart-svg { width: 100%; height: auto; display: block; }
+.chart-fill { display: flex; flex-direction: column; flex: 1; min-height: 220px; }
+.chart-svg { width: 100%; flex: 1; min-height: 0; display: block; }
 .bar-dep { fill: var(--depense); }
 .bar-rev { fill: var(--revenu); }
 .chart-base { stroke: var(--border); stroke-width: 1; }
-.chart-axis { fill: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+.chart-axis {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  padding: 0.4rem calc(100% * 6 / 720) 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+}
 
 /* Classement des catégories */
 .cat-rank { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }

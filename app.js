@@ -2258,13 +2258,16 @@ function yearCategoryTotals(year) {
 
 // Barres groupées dépenses/revenus sur 12 mois
 function svgGroupedBars(dep, rev) {
-  const W = 720, H = 240, padX = 6, padT = 12, padB = 26;
-  const innerW = W - padX * 2, innerH = H - padT - padB;
+  // Étiré en hauteur (preserveAspectRatio="none") pour remplir la carte : les
+  // mois sont donc en HTML sous le SVG, sinon le texte serait déformé.
+  const W = 720, H = 220, padX = 6, padT = 12;
+  const innerW = W - padX * 2, innerH = H - padT;
   const max = Math.max(1, ...dep, ...rev);
   const groupW = innerW / 12;
   const barW = Math.max(4, groupW / 2 - 3);
   const baseY = padT + innerH;
-  let s = `<line class="chart-base" x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}"/>`;
+  let s = `<line class="chart-base" x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}" vector-effect="non-scaling-stroke"/>`;
+  let months = '';
   for (let m = 0; m < 12; m++) {
     const gx = padX + m * groupW;
     const dh = (dep[m] / max) * innerH;
@@ -2273,9 +2276,12 @@ function svgGroupedBars(dep, rev) {
     const rx = gx + groupW / 2 + 1;
     if (dep[m] > 0) s += `<rect class="bar-dep" x="${dx.toFixed(1)}" y="${(baseY - dh).toFixed(1)}" width="${barW.toFixed(1)}" height="${dh.toFixed(1)}" rx="2"><title>${MONTHS_SHORT[m]} — dépenses ${fmtEUR(dep[m])}</title></rect>`;
     if (rev[m] > 0) s += `<rect class="bar-rev" x="${rx.toFixed(1)}" y="${(baseY - rh).toFixed(1)}" width="${barW.toFixed(1)}" height="${rh.toFixed(1)}" rx="2"><title>${MONTHS_SHORT[m]} — revenus ${fmtEUR(rev[m])}</title></rect>`;
-    s += `<text class="chart-axis" x="${(gx + groupW / 2).toFixed(1)}" y="${H - 9}" text-anchor="middle">${MONTHS_SHORT[m]}</text>`;
+    months += `<span>${MONTHS_SHORT[m]}</span>`;
   }
-  return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Dépenses et revenus par mois">${s}</svg>`;
+  return `<div class="chart-fill">
+      <svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Dépenses et revenus par mois">${s}</svg>
+      <div class="chart-axis">${months}</div>
+    </div>`;
 }
 
 function renderStats() {

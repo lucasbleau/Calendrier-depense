@@ -1826,7 +1826,7 @@ body {
   padding: 1.5rem 1.25rem 2rem;
   overflow-y: auto;
   height: calc(100vh - var(--header-h));
-  max-width: 980px;
+  max-width: 1240px;
   margin: 0 auto;
 }
 
@@ -1890,6 +1890,14 @@ body {
   font-style: italic;
   padding: 3rem 1rem;
 }
+
+.stats-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.stats-charts .chart-card { margin-bottom: 0; }
 
 .chart-card {
   background: var(--surface);
@@ -1957,6 +1965,7 @@ body {
 
 @media (max-width: 700px) {
   .stats-kpis { grid-template-columns: 1fr; }
+  .stats-charts { grid-template-columns: 1fr; }
   .cat-rank-item { grid-template-columns: 16px 8px 1fr 60px auto auto; }
   #view-stats { padding: 1rem 0.85rem 2rem; }
   .search-filters { grid-template-columns: 1fr 1fr; }

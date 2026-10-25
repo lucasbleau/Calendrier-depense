@@ -2336,6 +2336,7 @@ function renderStats() {
   }
 
   html += `
+    <div class="stats-charts">
     <div class="chart-card">
       <div class="chart-card-head">
         <h3 class="chart-card-title">Dépenses &amp; revenus par mois</h3>
@@ -2352,6 +2353,7 @@ function renderStats() {
       <ul class="cat-rank">
         ${slices.length ? statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) : '<li class="cat-rank-empty">Aucune dépense</li>'}
       </ul>
+    </div>
     </div>`;
 
   container.innerHTML = html;

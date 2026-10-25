@@ -61,7 +61,8 @@ Simplifiée le 24/10/2026 (donut et courbe du solde retirés).
 ### Vue Récurrences
 
 - Créer/modifier/supprimer des tâches récurrentes (loyer, Netflix, salaire...)
-- Chaque tâche : libellé, montant, type, catégorie, jours du mois (ex : 1er et 15)
+- Chaque tâche : libellé, montant, type, catégorie, jours du mois (ex : 1er et 15), **date de départ** (`startDate`, aujourd'hui par défaut à la création)
+- **Date de départ** : les occurrences antérieures ne comptent nulle part (calendrier, Objectifs, Stats, rapprochement d'import) via `recurDaysInMonth`, seul point d'entrée des jours d'occurrence d'un mois. Vide (récurrences créées avant cette option) = compte sur tous les mois passés.
 - Les récurrences apparaissent dans le calendrier comme rappels (↺ montant)
 - Depuis le panneau jour : bouton `+` pour créer une opération pré-remplie depuis la récurrence
 - **Règle anti-double-comptage** : l'opération créée via `+` garde l'id de sa récurrence (`recurId`, colonne `recur_id` en DB). Une occurrence « réalisée » (opération liée dans le mois, affectée à l'occurrence la plus proche) disparaît des rappels ↺ et des totaux « réels » (`recurRemaining`, `recurMonthTotal`, `getRecurringForDay`). Le « prévu » des Objectifs (`recurExpected`) compte en revanche **toutes** les occurrences — le dénominateur ne bouge pas quand on saisit.
@@ -169,6 +170,7 @@ type RecurringTask = {
   type: 'depense' | 'revenu';
   category: string;
   days: number[];        // ex: [1, 15] = 1er et 15 du mois
+  startDate?: string | null; // YYYY-MM-DD, occurrences antérieures ignorées ; null = depuis toujours
 };
 
 type Category = {
@@ -235,7 +237,7 @@ En mode déployé, toutes les données (opérations, récurrences et leurs monta
 ```sql
 users           — id (PK), username, username_lc (unique), pin_hash, pin_salt, failed_count, locked_until, created_at
 expenses        — id (PK), user_id, date, label, amount, type, category, recur_id (FK recurring_tasks, SET NULL), created_at
-recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), created_at
+recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), start_date (DATE, NULL = depuis toujours ; ajoutée par api/recurring.js au cold start), created_at
 goals           — (user_id, category) PK, amount, updated_at
 categories      — (user_id, id) PK, label, color, mode ('mois'|'jour'), parent (FK self, SET NULL), archived (bool), created_at
 plan_days       — (user_id, category, date) PK — jours peints (vue Planning, retirée — table conservée), FK categories CASCADE
@@ -289,7 +291,6 @@ Browser → /api/plan         → Postgres (plan_* WHERE user_id) — plus appel
 - **Multi-comptes** : ventiler entre compte courant, PEA, etc.
 - **Règles de catégorisation** : mappings mot-clé → catégorie personnalisables (la catégorisation apprend déjà de l'historique)
 - **Rapprochement rétroactif** : lier aux récurrences les opérations importées avant le rapprochement automatique (elles restent comptées deux fois)
-- **Date de début des récurrences** : aujourd'hui une récurrence compte sur tous les mois passés (moyennes)
 - **PWA** : installation mobile, fonctionnement offline
 - **Tests** : Vitest pour la logique de parsing CSV et les calculs d'agrégation
 

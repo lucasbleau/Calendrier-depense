@@ -1,6 +1,7 @@
 const { withDb, TYPES } = require('./_lib');
 
 const YM_RE     = /^\d{4}-\d{2}$/;
+const DATE_RE   = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_BATCH = 500;
 
 // Auto-migration au cold start : montants d'une récurrence modifiés pour un mois
@@ -17,6 +18,8 @@ async function ensureSchema(client) {
       updated_at TIMESTAMPTZ    DEFAULT NOW(),
       PRIMARY KEY (user_id, recur_id, ym)
     )`);
+  // Date de départ : NULL = compte sur tous les mois (récurrences antérieures).
+  await client.query('ALTER TABLE recurring_tasks ADD COLUMN IF NOT EXISTS start_date DATE');
   schemaReady = true;
 }
 
@@ -35,7 +38,8 @@ module.exports = withDb('recurring', 'GET,POST,DELETE,OPTIONS', async (req, res,
       return res.json(rows.map(r => ({ recurId: r.recur_id, yearMonth: r.ym, amount: r.amount })));
     }
     const { rows } = await client.query(
-      `SELECT id, label, amount::float AS amount, type, category, days
+      `SELECT id, label, amount::float AS amount, type, category, days,
+              to_char(start_date, 'YYYY-MM-DD') AS "startDate"
        FROM recurring_tasks WHERE user_id = $1 ORDER BY created_at ASC`,
       [uid]
     );
@@ -84,19 +88,20 @@ module.exports = withDb('recurring', 'GET,POST,DELETE,OPTIONS', async (req, res,
   }
 
   if (req.method === 'POST') {
-    const { id, label, amount, type, category, days } = req.body;
+    const { id, label, amount, type, category, days, startDate = null } = req.body;
     if (!id || !label || !String(label).trim()) return res.status(400).json({ error: 'id et label requis' });
     if (!Number.isFinite(amount) || amount < 0)  return res.status(400).json({ error: 'amount invalide' });
     if (!TYPES.includes(type))                    return res.status(400).json({ error: 'type invalide' });
     if (!Array.isArray(days))                     return res.status(400).json({ error: 'days invalide' });
+    if (startDate !== null && !DATE_RE.test(startDate)) return res.status(400).json({ error: 'startDate invalide' });
 
     await client.query(
-      `INSERT INTO recurring_tasks (id, label, amount, type, category, days, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO recurring_tasks (id, label, amount, type, category, days, start_date, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE
-       SET label=$2, amount=$3, type=$4, category=$5, days=$6
-       WHERE recurring_tasks.user_id = $7`,
-      [id, label, amount, type, category, JSON.stringify(days), uid]
+       SET label=$2, amount=$3, type=$4, category=$5, days=$6, start_date=$7
+       WHERE recurring_tasks.user_id = $8`,
+      [id, label, amount, type, category, JSON.stringify(days), startDate, uid]
     );
     return res.json({ ok: true });
   }

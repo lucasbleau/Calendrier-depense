@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS recurring_tasks (
   type        TEXT            NOT NULL,
   category    TEXT            NOT NULL,
   days        TEXT            NOT NULL,
+  start_date  DATE,
   created_at  TIMESTAMPTZ     DEFAULT NOW(),
   CONSTRAINT fk_recurring_category
     FOREIGN KEY (user_id, category) REFERENCES categories(user_id, id)

@@ -472,10 +472,16 @@ function fmtDays(days) {
 // Jours d'occurrence d'une récurrence déjà couverts par une opération liée
 // (créée via « + », champ recurId) pour un mois donné. Chaque opération liée
 // est affectée à l'occurrence la plus proche, pour tolérer une date déplacée.
+// Jours d'occurrence d'une récurrence dans un mois : jours hors du mois (31 d'un
+// mois de 30 j) et jours antérieurs à sa date de départ (startDate) exclus.
+function recurDaysInMonth(task, year, month) {
+  const dim = daysIn(year, month);
+  return task.days.filter(d => d <= dim && (!task.startDate || dateKey(year, month, d) >= task.startDate));
+}
+
 function realizedRecurDays(task, year, month) {
   const prefix = ymKey(year, month);
-  const dim = daysIn(year, month);
-  const occDays = task.days.filter(d => d <= dim);
+  const occDays = recurDaysInMonth(task, year, month);
   const realized = new Set();
   for (const e of state.expenses) {
     if (e.recurId !== task.id || !e.date.startsWith(prefix)) continue;
@@ -492,9 +498,8 @@ function realizedRecurDays(task, year, month) {
 
 // Nombre d'occurrences d'une récurrence restant à saisir pour un mois donné
 function unrealizedOccurrences(task, year, month) {
-  const dim = daysIn(year, month);
   const realized = realizedRecurDays(task, year, month);
-  return task.days.filter(d => d <= dim && !realized.has(d)).length;
+  return recurDaysInMonth(task, year, month).filter(d => !realized.has(d)).length;
 }
 
 // Retourne les récurrences actives pour un jour donné, avec overrides mensuels appliqués.
@@ -504,7 +509,7 @@ function unrealizedOccurrences(task, year, month) {
 function getRecurringForDay(year, month, day) {
   const ym = ymKey(year, month);
   return state.recurring
-    .filter(task => task.days.includes(day) && !realizedRecurDays(task, year, month).has(day))
+    .filter(task => recurDaysInMonth(task, year, month).includes(day) && !realizedRecurDays(task, year, month).has(day))
     .map(task => {
       const ov = getOverride(task.id, ym);
       return ov ? { ...task, amount: ov.amount, _overridden: true } : task;
@@ -605,7 +610,7 @@ function linkImportToRecurrences(ops) {
   for (const op of [...ops].sort((a, b) => a.date.localeCompare(b.date))) {
     if (op.recurId) continue;
     const y = +op.date.slice(0, 4), m = +op.date.slice(5, 7) - 1, d = +op.date.slice(8, 10);
-    const ym = ymKey(y, m), dim = daysIn(y, m);
+    const ym = ymKey(y, m);
     let best = null;
     for (const task of state.recurring) {
       if (task.type !== op.type || !CATEGORIES.some(c => c.id === task.category)) continue;
@@ -614,8 +619,8 @@ function linkImportToRecurrences(ops) {
       if (!(expected > 0)) continue;
       const amountGap = Math.abs(op.amount - expected);
       if (amountGap > Math.max(1, expected * 0.05)) continue;
-      for (const day of task.days) {
-        if (day > dim || isTaken(task, y, m, day)) continue;
+      for (const day of recurDaysInMonth(task, y, m)) {
+        if (isTaken(task, y, m, day)) continue;
         const dayGap = Math.abs(day - d);
         if (dayGap > LINK_DAY_TOLERANCE) continue;
         const score = amountGap / expected + dayGap / 100;
@@ -1081,7 +1086,7 @@ function renderRecurring() {
         <span class="recurring-icon">↺</span>
         <div class="recurring-info">
           <span class="recurring-label">${task.label}</span>
-          <span class="recurring-meta">${fmtDays(task.days)}</span>
+          <span class="recurring-meta">${fmtDays(task.days)}${task.startDate ? ` · depuis le ${task.startDate.split('-').reverse().join('/')}` : ''}</span>
         </div>
         <span class="recurring-amount ${task.type}">${task.type === 'depense' ? '−' : '+'}${fmtEUR(task.amount)}</span>
         <button class="btn-icon btn-edit-recur" data-id="${task.id}" title="Modifier">✏</button>
@@ -1124,6 +1129,8 @@ function openRecurringModal(task = null) {
   $('recur-category').value = task?.category || DEFAULT_CATEGORY;
   $('modal-recurring-title').textContent = task ? 'Modifier la récurrence' : 'Nouvelle récurrence';
 
+  // Nouvelle récurrence : départ aujourd'hui. Ancienne sans date : vide = depuis toujours.
+  $('recur-start').value = task ? (task.startDate || '') : todayStr();
   modalRecurDays = task ? [...task.days] : [];
   renderDayPicker();
 
@@ -1165,12 +1172,13 @@ async function saveRecurring() {
   const type     = $('recur-type').value;
   const category = $('recur-category').value;
   const days     = modalRecurDays;
+  const startDate = $('recur-start').value || null;
 
   if (!label) { $('recur-label').focus(); return; }
   if (!amount) { $('recur-amount').focus(); return; }
   if (days.length === 0) { showToast('Sélectionnez au moins un jour du mois'); return; }
 
-  const task = { id, label, amount, type, category, days };
+  const task = { id, label, amount, type, category, days, startDate };
 
   const snapshot = state.recurring.map(t => ({ ...t }));
   const existing = state.recurring.findIndex(t => t.id === id);
@@ -1397,13 +1405,12 @@ function showToast(msg) {
 // Montant attendu des récurrences pour une catégorie/mois donnés (overrides inclus).
 // Toutes les occurrences comptent, même déjà saisies : sert de « prévu » (dénominateurs).
 function recurExpected(categoryId, year, month) {
-  const dim = daysIn(year, month);
   const ym = ymKey(year, month);
   return state.recurring
     .filter(t => t.category === categoryId && t.type === 'depense')
     .reduce((sum, t) => {
       const ov = getOverride(t.id, ym);
-      return sum + (ov ? ov.amount : t.amount) * t.days.filter(d => d <= dim).length;
+      return sum + (ov ? ov.amount : t.amount) * recurDaysInMonth(t, year, month).length;
     }, 0);
 }
 
@@ -1493,7 +1500,6 @@ function categoryMonthlyAverage(catId) {
 // Opérations d'une catégorie pour un mois : saisies + récurrences restantes (↺)
 function goalOpsRows(catId, year, month) {
   const ym  = ymKey(year, month);
-  const dim = daysIn(year, month);
   const rows = getMonthData(year, month)
     .filter(e => e.type === 'depense' && e.category === catId)
     .map(e => ({ day: +e.date.slice(8, 10), label: e.label, amount: e.amount, recur: false }));
@@ -1503,8 +1509,8 @@ function goalOpsRows(catId, year, month) {
     const amt = ov ? ov.amount : t.amount;
     if (!(amt > 0)) continue;
     const realized = realizedRecurDays(t, year, month);
-    for (const d of t.days) {
-      if (d <= dim && !realized.has(d)) rows.push({ day: d, label: t.label, amount: amt, recur: true });
+    for (const d of recurDaysInMonth(t, year, month)) {
+      if (!realized.has(d)) rows.push({ day: d, label: t.label, amount: amt, recur: true });
     }
   }
   return rows.sort((a, b) => a.day - b.day || (a.recur - b.recur));

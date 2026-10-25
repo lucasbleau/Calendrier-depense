@@ -214,6 +214,8 @@ type RecurringOverride = { recurId: string; yearMonth: string; amount: number };
 
 ### Conventions UI
 
+- **Style « verre dépoli »** (type liquid glass) : fond ambré fixe (`--page-bg`, halos cuivre/sauge/ocre) visible derrière des surfaces translucides (`--surface`, `--surface-2` en rgba blanc) + `backdrop-filter` (`--glass-blur`) sur les grands conteneurs (barre latérale, `.app-main`, modales, popovers). Cadre de `--frame` (6 px) autour de l'écran.
+- **Navigation** : barre latérale verticale à gauche (`.app-sidebar`), une icône SVG par page ; au survol, la pastille (`.nav-pill`) s'élargit pour afficher l'icône + le nom. Recherche, import, compte et déconnexion en bas. Sous 760 px : barre d'onglets en bas, sans libellés.
 - Localisation FR (mois, jours, libellés)
 - Format monétaire : `Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' })` via `fmtEUR()`
 - Format compact pour les cellules calendrier : `123,50€`, `1,2k€` via `fmtCompact()` (aucun arrondi)

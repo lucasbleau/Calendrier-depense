@@ -2647,7 +2647,8 @@ function showLoggedInUser() {
   const name = sessionStorage.getItem(USER_KEY);
   if (!name) return;
   const el = $('header-user');
-  el.textContent = name;
+  $('header-user-initial').textContent = name.charAt(0).toUpperCase();
+  $('header-user-name').textContent = name;
   el.classList.remove('hidden');
   $('btn-logout').classList.remove('hidden');
 }

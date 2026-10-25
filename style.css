@@ -9,12 +9,28 @@
 }
 
 :root {
-  /* Palette « Ardoise & cuivre » */
-  --bg:            #E8E9EC;
-  --surface:       #F7F8FA;
-  --surface-2:     #EDEEF1;
-  --border:        #C2C6CE;
-  --border-light:  #DDE0E6;
+  /* Palette « Ardoise & cuivre », version verre dépoli : les surfaces sont
+     translucides et laissent voir le fond ambré flouté (--page-bg). */
+  --page-base:     #E3DFD8;
+  --page-bg:
+    radial-gradient(60vmax 50vmax at 8% 12%,  rgba(176, 106, 60, 0.34), transparent 60%),
+    radial-gradient(50vmax 45vmax at 92% 6%,  rgba(62, 130, 104, 0.24), transparent 60%),
+    radial-gradient(55vmax 50vmax at 78% 96%, rgba(193, 138, 54, 0.30), transparent 60%),
+    radial-gradient(45vmax 40vmax at 4% 92%,  rgba(90, 97, 107, 0.26), transparent 60%),
+    var(--page-base);
+  --bg:            rgba(255, 255, 255, 0.30);
+  --surface:       rgba(255, 255, 255, 0.55);
+  --surface-2:     rgba(255, 255, 255, 0.38);
+  --surface-solid: rgba(250, 249, 247, 0.86);
+  --border:        rgba(31, 35, 41, 0.14);
+  --border-light:  rgba(255, 255, 255, 0.72);
+
+  /* Verre */
+  --glass-blur:    blur(26px) saturate(170%);
+  --glass-edge:    rgba(255, 255, 255, 0.65);
+  --glass-shadow:  inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 40px rgba(60, 45, 30, 0.12);
+  --frame:         6px;
+  --radius-xl:     20px;
 
   /* Texte */
   --text:          #1F2329;
@@ -47,7 +63,6 @@
   --font-mono:     'JetBrains Mono', monospace;
 
   /* Mise en page */
-  --header-h: 56px;
   --radius:   9px;
   --radius-sm: 6px;
   --shadow:   0 2px 12px rgba(31, 35, 41, 0.08);
@@ -58,9 +73,15 @@ html { font-size: 14px; }
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background: var(--bg);
+  background: var(--page-bg);
+  background-attachment: fixed;
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  gap: var(--frame);
+  padding: var(--frame);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -78,7 +99,7 @@ body {
 .btn-primary {
   padding: 0.45rem 1rem;
   background: var(--accent);
-  color: var(--surface);
+  color: #fff;
   border: none;
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
@@ -136,59 +157,154 @@ body {
 .btn-icon:hover { color: var(--text); }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Header
+   Cadre : barre latérale + panneau principal (verre)
    ───────────────────────────────────────────────────────────────────────────── */
 
-.app-header {
-  height: var(--header-h);
+.app-sidebar,
+.app-main {
+  background: rgba(255, 255, 255, 0.26);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--glass-shadow);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-sidebar {
+  width: 64px;
+  flex-shrink: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 1rem;
-  padding: 0 1.5rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+  gap: 1.1rem;
+  padding: 12px 0;
+  position: relative;
   z-index: 100;
 }
 
-.app-logo {
+.app-brand {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: 1.3rem;
   font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
+  color: #fff;
+  background: linear-gradient(150deg, #C98457, var(--accent) 55%, var(--accent-hover));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 4px 14px rgba(var(--accent-rgb), 0.35);
+  user-select: none;
 }
-.app-logo span { color: var(--accent); }
 
-.view-tabs {
+.view-tabs,
+.sidebar-actions {
   display: flex;
-  gap: 2px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 3px;
+  flex-direction: column;
+  gap: 6px;
 }
-.view-tabs button {
-  padding: 0.35rem 0.9rem;
+.sidebar-actions { margin-top: auto; }
+
+/* Un item = un carré de 44 px ; au survol, sa pastille s'élargit vers la droite
+   par-dessus le contenu pour afficher l'icône + le nom de la page. */
+.nav-item {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   border: none;
-  background: transparent;
-  border-radius: 6px;
-  font-family: var(--font-body);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+}
+.nav-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  max-width: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.18s, box-shadow 0.18s, color 0.18s;
+}
+.nav-pill svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nav-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.view-tabs button.active {
-  background: var(--surface);
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(31, 35, 41, 0.12);
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.nav-label kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 4px;
 }
 
-.header-actions { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
+.nav-item:hover .nav-pill,
+.nav-item:focus-visible .nav-pill {
+  max-width: 240px;
+  background: rgba(255, 255, 255, 0.88);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 #fff, 0 8px 28px rgba(60, 45, 30, 0.18);
+  color: var(--text);
+  z-index: 10;
+}
+.nav-item:hover .nav-label,
+.nav-item:focus-visible .nav-label { opacity: 1; }
+.nav-item:focus-visible { outline: none; }
+.nav-item:focus-visible .nav-pill { border-color: var(--accent); }
+
+.nav-item.active .nav-pill {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 10px rgba(60, 45, 30, 0.10);
+  color: var(--accent);
+}
+.nav-item--accent { color: var(--accent); }
+
+.nav-user { cursor: default; }
+.nav-avatar {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-faint);
+  box-shadow: 0 0 0 1.5px rgba(var(--accent-rgb), 0.35);
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Vue Calendrier — layout
@@ -197,7 +313,7 @@ body {
 #view-calendar {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--header-h));
+  height: 100%;
 }
 
 .calendar-nav {
@@ -326,7 +442,7 @@ body {
 }
 .cal-day.today .day-num {
   background: var(--accent);
-  color: var(--surface);
+  color: #fff;
   border-radius: 50%;
   width: 20px;
   height: 20px;
@@ -536,17 +652,21 @@ body {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(31, 35, 41, 0.5);
+  background: rgba(40, 32, 24, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 200;
   padding: 1rem;
-  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 .modal-box {
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
   border-radius: 12px;
   width: 100%;
   max-width: 420px;
@@ -742,7 +862,7 @@ body {
 #loading-overlay {
   position: fixed;
   inset: 0;
-  background: var(--bg);
+  background: var(--page-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -771,8 +891,11 @@ body {
   bottom: 1.5rem;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--text);
-  color: var(--surface);
+  background: rgba(31, 35, 41, 0.78);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
   padding: 0.55rem 1.2rem;
   border-radius: 999px;
   font-size: 13px;
@@ -806,6 +929,9 @@ body {
     inset: 0;
     width: 100% !important;
     z-index: 150;
+    background: var(--surface-solid);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
     border-left: none;
     border-top: 1px solid var(--border);
   }
@@ -864,7 +990,7 @@ body {
 .btn-edit-recur-amount:hover {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--surface);
+  color: #fff;
 }
 
 .btn-recur-reset {
@@ -920,7 +1046,7 @@ body {
 }
 .btn-use-recur:hover {
   background: var(--accent);
-  color: var(--surface);
+  color: #fff;
   border-color: var(--accent);
 }
 
@@ -931,7 +1057,7 @@ body {
 #view-recurring {
   padding: 1.5rem;
   overflow-y: auto;
-  height: calc(100vh - var(--header-h));
+  height: 100%;
 }
 
 .recurring-header {
@@ -1157,7 +1283,7 @@ body {
 .day-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--surface);
+  color: #fff;
   font-weight: 600;
 }
 
@@ -1197,7 +1323,7 @@ body {
 #view-goals {
   padding: 1.5rem 1.25rem;
   overflow-y: auto;
-  height: calc(100vh - var(--header-h));
+  height: 100%;
 }
 
 .obj { max-width: 720px; margin: 0 auto; }
@@ -1316,7 +1442,7 @@ body {
   min-width: 190px;
   padding: 0.55rem 0.7rem;
   background: var(--text);
-  color: var(--surface);
+  color: #fff;
   border-radius: var(--radius-sm);
   box-shadow: 0 6px 18px rgba(31, 35, 41, 0.18);
   font-family: var(--font-body);
@@ -1603,7 +1729,7 @@ body {
 #auth-overlay {
   position: fixed;
   inset: 0;
-  background: var(--bg);
+  background: var(--page-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1612,9 +1738,11 @@ body {
 }
 
 .auth-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-xl);
   padding: 2.5rem 2rem 2rem;
   width: 100%;
   max-width: 320px;
@@ -1671,19 +1799,6 @@ body {
 }
 .auth-toggle-link:hover { color: var(--accent-hover); text-decoration: underline; }
 
-.header-user {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text-2);
-  padding: 0.2rem 0.6rem;
-  background: var(--surface-2);
-  border: 1px solid var(--border-light);
-  border-radius: 99px;
-  white-space: nowrap;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Bouton Aujourd'hui + Légende
@@ -1714,8 +1829,10 @@ body {
   right: 0;
   z-index: 60;
   width: 270px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   padding: 0.7rem 0.85rem;
@@ -1825,7 +1942,7 @@ body {
 #view-stats {
   padding: 1.5rem 1.25rem 2rem;
   overflow-y: auto;
-  height: calc(100vh - var(--header-h));
+  height: 100%;
   max-width: 1240px;
   margin: 0 auto;
 }
@@ -1963,12 +2080,21 @@ body {
    Responsive — nouveaux composants
    ───────────────────────────────────────────────────────────────────────────── */
 
+/* Mobile : la barre latérale devient une barre d'onglets en bas, sans survol */
 @media (max-width: 760px) {
-  .app-header { flex-wrap: wrap; height: auto; padding: 0.5rem 0.75rem; gap: 0.5rem; }
-  .view-tabs { order: 3; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .view-tabs button { flex: 0 0 auto; }
-  .header-actions { margin-left: auto; }
-  .app-logo { font-size: 1.05rem; }
+  body { flex-direction: column-reverse; }
+  .app-sidebar {
+    width: auto;
+    height: 58px;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 0 8px;
+    gap: 4px;
+  }
+  .app-brand, .nav-label, .nav-user { display: none; }
+  .view-tabs, .sidebar-actions { flex-direction: row; gap: 2px; margin-top: 0; }
+  .nav-item:hover .nav-pill { max-width: 44px; box-shadow: none; }
+  .nav-item:not(.active):hover .nav-pill { background: none; border-color: transparent; }
 }
 
 @media (max-width: 700px) {

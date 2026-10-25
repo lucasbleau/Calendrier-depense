@@ -2586,6 +2586,10 @@ async function init() {
   });
   $('btn-add-recurring').addEventListener('click', () => openRecurringModal());
 
+  // Citation au survol du logo : une nouvelle à chaque survol
+  showBrandQuote();
+  document.querySelector('.app-brand-row').addEventListener('mouseenter', showBrandQuote);
+
   // Auth overlay
   $('btn-auth-submit').addEventListener('click', submitAuth);
   $('btn-auth-toggle').addEventListener('click', toggleAuthMode);
@@ -2641,6 +2645,29 @@ async function finishAuth(token, email) {
   $('auth-overlay').classList.add('hidden');
   showLoggedInUser();
   await loadAndRender();
+}
+
+// Citations sur l'argent et sa gestion (attributions vérifiées, traduites)
+const MONEY_QUOTES = [
+  ['Prenez garde aux petites dépenses : une petite fuite suffit à couler un grand navire.', 'Benjamin Franklin'],
+  ['Le prix, c\'est ce que vous payez. La valeur, c\'est ce que vous obtenez.', 'Warren Buffett'],
+  ['Si quelqu\'un est assis à l\'ombre aujourd\'hui, c\'est que quelqu\'un a planté un arbre il y a longtemps.', 'Warren Buffett'],
+  ['Règle n° 1 : ne jamais perdre d\'argent. Règle n° 2 : ne jamais oublier la règle n° 1.', 'Warren Buffett'],
+  ['Le gros de l\'argent ne se fait pas en achetant ou en vendant, mais en attendant.', 'Charlie Munger'],
+  ['L\'épargne, c\'est l\'écart entre votre ego et vos revenus.', 'Morgan Housel'],
+  ['La richesse, c\'est ce que vous ne voyez pas : les voitures non achetées, les montres non portées.', 'Morgan Housel'],
+  ['Ce n\'est pas combien vous gagnez qui compte, mais combien vous gardez.', 'Robert Kiyosaki'],
+  ['Un budget, c\'est dire à votre argent où aller, au lieu de vous demander où il est passé.', 'Dave Ramsey'],
+  ['Le pauvre n\'est pas celui qui a peu, mais celui qui désire davantage.', 'Sénèque'],
+];
+let lastQuote = -1;
+
+function showBrandQuote() {
+  let i;
+  do { i = Math.floor(Math.random() * MONEY_QUOTES.length); } while (i === lastQuote);
+  lastQuote = i;
+  $('brand-quote-text').textContent = `« ${MONEY_QUOTES[i][0].replace(/ ([:;!?])/g, ' $1')} »`;
+  $('brand-quote-author').textContent = `— ${MONEY_QUOTES[i][1]}`;
 }
 
 function showLoggedInUser() {

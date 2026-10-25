@@ -2589,7 +2589,9 @@ async function init() {
   // Auth overlay
   $('btn-auth-submit').addEventListener('click', submitAuth);
   $('btn-auth-toggle').addEventListener('click', toggleAuthMode);
-  $('auth-username').addEventListener('keydown', e => { if (e.key === 'Enter') $('auth-input').focus(); });
+  $('auth-email').addEventListener('keydown', e => {
+    if (e.key === 'Enter') authMode === 'email' ? submitAuth() : $('auth-input').focus();
+  });
   $('auth-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
   $('auth-input').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, ''); });
   $('btn-logout').addEventListener('click', logout);
@@ -2604,8 +2606,10 @@ async function init() {
   await loadAndRender();
 }
 
-// Mode de l'overlay : 'login' (défaut) ou 'register'
+// Mode de l'overlay : 'login' (défaut), 'register', ou 'email' (ancien compte
+// connecté par pseudo, qui doit enregistrer son email avant d'entrer).
 let authMode = 'login';
+let pendingToken = null;
 
 function toggleAuthMode() {
   authMode = authMode === 'login' ? 'register' : 'login';
@@ -2616,7 +2620,27 @@ function toggleAuthMode() {
   $('btn-auth-toggle').textContent  = isReg ? 'Se connecter'       : 'Créer un compte';
   $('auth-input').setAttribute('autocomplete', isReg ? 'new-password' : 'current-password');
   $('auth-error').classList.add('hidden');
-  $('auth-username').focus();
+  $('auth-email').focus();
+}
+
+function showEmailStep(token) {
+  authMode = 'email';
+  pendingToken = token;
+  $('auth-subtitle').textContent = 'Ajoutez votre email : il remplace votre identifiant pour vous connecter.';
+  $('btn-auth-submit').textContent = 'Enregistrer et continuer';
+  $('auth-pin-field').classList.add('hidden');
+  $('auth-toggle-line').classList.add('hidden');
+  $('auth-error').classList.add('hidden');
+  $('auth-email').value = '';
+  $('auth-email').focus();
+}
+
+async function finishAuth(token, email) {
+  sessionStorage.setItem(AUTH_KEY, token);
+  sessionStorage.setItem(USER_KEY, email);
+  $('auth-overlay').classList.add('hidden');
+  showLoggedInUser();
+  await loadAndRender();
 }
 
 function showLoggedInUser() {
@@ -2686,14 +2710,42 @@ async function loadAndRender() {
 }
 
 async function submitAuth() {
-  const userInput = $('auth-username');
-  const pinInput  = $('auth-input');
-  const error     = $('auth-error');
-  const btn       = $('btn-auth-submit');
-  const username  = userInput.value.trim();
-  const pin       = pinInput.value.trim();
+  const emailInput = $('auth-email');
+  const pinInput   = $('auth-input');
+  const error      = $('auth-error');
+  const btn        = $('btn-auth-submit');
+  const email      = emailInput.value.trim();
+  const pin        = pinInput.value.trim();
+  const fail = msg => { error.textContent = msg; error.classList.remove('hidden'); };
 
-  if (!username) { userInput.focus(); return; }
+  if (!email) { emailInput.focus(); return; }
+  // La connexion accepte encore l'ancien pseudo (comptes sans email)
+  if (authMode !== 'login' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    fail('Adresse email invalide.');
+    emailInput.focus();
+    return;
+  }
+
+  if (authMode === 'email') {
+    btn.disabled = true;
+    error.classList.add('hidden');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': pendingToken },
+        body: JSON.stringify({ action: 'set-email', email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) await finishAuth(pendingToken, data.email || email);
+      else fail(data.error || 'Impossible d\'enregistrer cet email.');
+    } catch {
+      fail('Erreur de connexion. Réessayez.');
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
+
   if (!/^\d{4,6}$/.test(pin)) {
     error.textContent = 'Le PIN doit comporter 4 à 6 chiffres.';
     error.classList.remove('hidden');
@@ -2708,24 +2760,20 @@ async function submitAuth() {
     const res = await fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: authMode, username, pin }),
+      body: JSON.stringify(authMode === 'register' ? { action: 'register', email, pin } : { action: 'login', login: email, pin }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.token) {
-      sessionStorage.setItem(AUTH_KEY, data.token);
-      sessionStorage.setItem(USER_KEY, data.username || username);
-      $('auth-overlay').classList.add('hidden');
-      showLoggedInUser();
-      await loadAndRender();
+      pinInput.value = '';
+      if (data.needsEmail) showEmailStep(data.token);
+      else await finishAuth(data.token, data.email || email);
     } else {
-      error.textContent = data.error || 'Identifiant ou PIN incorrect.';
-      error.classList.remove('hidden');
+      fail(data.error || 'Email ou PIN incorrect.');
       pinInput.value = '';
       pinInput.focus();
     }
   } catch {
-    error.textContent = 'Erreur de connexion. Réessayez.';
-    error.classList.remove('hidden');
+    fail('Erreur de connexion. Réessayez.');
   } finally {
     btn.disabled = false;
   }

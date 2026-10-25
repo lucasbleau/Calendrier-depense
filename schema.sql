@@ -4,8 +4,10 @@
 
 CREATE TABLE IF NOT EXISTS users (
   id           TEXT PRIMARY KEY,
-  username     TEXT NOT NULL,
-  username_lc  TEXT UNIQUE NOT NULL,
+  email        TEXT,
+  email_lc     TEXT UNIQUE,
+  username     TEXT,          -- anciens comptes uniquement (connexion par pseudo avant l'email)
+  username_lc  TEXT UNIQUE,
   pin_hash     TEXT NOT NULL,
   pin_salt     TEXT NOT NULL,
   failed_count INT  DEFAULT 0,

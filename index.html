@@ -263,18 +263,18 @@
       <div class="auth-logo">Calendrier <span>Budget</span></div>
       <p class="auth-subtitle" id="auth-subtitle">Connectez-vous à votre compte</p>
       <div class="field">
-        <label for="auth-username">Identifiant</label>
-        <input type="text" id="auth-username" placeholder="votre identifiant" autocomplete="username"
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="vous@exemple.fr" autocomplete="username"
                autocapitalize="none" spellcheck="false" />
       </div>
-      <div class="field">
+      <div class="field" id="auth-pin-field">
         <label for="auth-input">Code PIN</label>
         <input type="password" id="auth-input" placeholder="••••" inputmode="numeric"
                autocomplete="current-password" maxlength="6" />
       </div>
       <button class="btn-primary auth-submit-btn" id="btn-auth-submit">Se connecter</button>
-      <p class="auth-error hidden" id="auth-error">Identifiant ou PIN incorrect.</p>
-      <p class="auth-toggle-line">
+      <p class="auth-error hidden" id="auth-error">Email ou PIN incorrect.</p>
+      <p class="auth-toggle-line" id="auth-toggle-line">
         <span id="auth-toggle-text">Pas encore de compte ?</span>
         <button type="button" class="auth-toggle-link" id="btn-auth-toggle">Créer un compte</button>
       </p>

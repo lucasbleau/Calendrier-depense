@@ -107,14 +107,15 @@ Page supprimée du front lors de la simplification (avec le mode « au jour » e
 
 ### Authentification (multi-utilisateurs)
 
-- **Comptes** : chaque utilisateur a un compte `username` + `PIN` (4-6 chiffres). Overlay de connexion/inscription à l'ouverture en production.
+- **Comptes** : chaque utilisateur a un compte **email** + `PIN` (4-6 chiffres) ; plus de pseudo à l'inscription. Overlay de connexion/inscription à l'ouverture en production.
+- **Anciens comptes (pseudo, sans email)** : la connexion accepte encore le pseudo tant que le compte n'a pas d'email (`login` → `needsEmail`). L'overlay passe alors à l'étape « Ajoutez votre email » (`POST /api/auth {action:'set-email'}` avec le token, une seule fois) ; ensuite, connexion par email uniquement. Colonnes `email`/`email_lc` créées par `api/auth.js` au cold start, `username` devenu facultatif.
 - **Inscription libre** : n'importe qui avec l'URL peut créer un compte (`POST /api/auth {action:'register'}`).
 - **Sécurité** : PIN haché en **scrypt** (sel par utilisateur) côté serveur — jamais stocké en clair. Verrou anti-bruteforce (15 min après 5 échecs).
-- **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), username en `USER_KEY`. Envoyé via `x-auth-token`.
+- **Token** : `/api/auth` renvoie un **token signé HMAC** (`base64url(payload).signature`) encodant l'`user_id` + expiration (30 j). Secret serveur `APP_TOKEN_SECRET`. Stocké en `sessionStorage` (clé `AUTH_KEY`), email en `USER_KEY`. Envoyé via `x-auth-token`.
 - **Isolation des données (critique)** : `withDb` (`api/_lib.js`) extrait l'`user_id` du token vérifié et le passe à chaque route. **Toutes** les requêtes sont filtrées par `user_id` (WHERE + INSERT + `UPDATE/DELETE … WHERE id=$ AND user_id=$`). L'`user_id` ne vient jamais du body/query. Un utilisateur ne peut ni lire ni modifier les données d'un autre, même en forgeant un id.
 - **Catégories par compte** : isolées par `user_id` (PK composite `(user_id, id)`). À l'inscription, seules **2 catégories structurelles** sont seedées (`Revenus`, `Autre`) — les nouveaux comptes partent neutres et créent les leurs.
 - **Aucun compte privilégié** : tous les comptes sont équivalents (objectifs auto/manuels, catégories). Il n'y a plus de compte « propriétaire » ni de config personnelle hardcodée.
-- **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:username`) pour éviter toute fuite inter-comptes sur un appareil partagé.
+- **Cache hors-ligne** : cloisonné par compte via `userCacheKey()` (suffixe `:email`) pour éviter toute fuite inter-comptes sur un appareil partagé.
 - **Déconnexion** : bouton header → vide `sessionStorage` et recharge.
 - En local (`file://` ou `localhost`) : aucune auth, mono-utilisateur localStorage, overlay jamais affiché.
 
@@ -140,7 +141,7 @@ ETAT-PROJET.md    — état du projet avant simplification + archive de la page 
 .gitignore
 api/
   _lib.js         — pool pg, withDb (CORS + auth + user_id), tokens signés, hachage PIN scrypt, catégories par défaut
-  auth.js         — POST /api/auth : register / login (username + PIN), renvoie un token signé
+  auth.js         — POST /api/auth : register (email + PIN) / login (email, ou ancien pseudo) / set-email, renvoie un token signé
   expenses.js     — GET / POST / PUT / DELETE : table expenses
   recurring.js    — GET / POST / DELETE : recurring_tasks ; ?overrides=1 et {action:'overrides'} : recurring_overrides (auto-migration)
   goals.js        — GET / POST / DELETE : table goals
@@ -207,9 +208,9 @@ type RecurringOverride = { recurId: string; yearMonth: string; amount: number };
 | `expense-calendar-plan-v1` | `Plan` (vue Planning retirée — clé plus lue) |
 | `expense-calendar-categories-v1` | `Category[]` (si modifié, sinon défauts hardcodés) |
 | `expense-calendar-auth-v1` | Token d'auth signé (sessionStorage) |
-| `expense-calendar-user-v1` | Username du compte connecté (sessionStorage) |
+| `expense-calendar-user-v1` | Email du compte connecté (sessionStorage) |
 
-> En mode déployé, les caches hors-ligne de données sont suffixés par `:username` (cloisonnement par compte).
+> En mode déployé, les caches hors-ligne de données sont suffixés par `:email` (cloisonnement par compte).
 
 ### Conventions UI
 
@@ -235,7 +236,7 @@ En mode déployé, toutes les données (opérations, récurrences et leurs monta
 ### Tables SQL (cf. `schema.sql`)
 
 ```sql
-users           — id (PK), username, username_lc (unique), pin_hash, pin_salt, failed_count, locked_until, created_at
+users           — id (PK), email, email_lc (unique), username, username_lc (unique, anciens comptes), pin_hash, pin_salt, failed_count, locked_until, created_at
 expenses        — id (PK), user_id, date, label, amount, type, category, recur_id (FK recurring_tasks, SET NULL), created_at
 recurring_tasks — id (PK), user_id, label, amount, type, category, days (JSON), start_date (DATE, NULL = depuis toujours ; ajoutée par api/recurring.js au cold start), created_at
 goals           — (user_id, category) PK, amount, updated_at
@@ -305,7 +306,7 @@ Browser → /api/plan         → Postgres (plan_* WHERE user_id) — plus appel
 
 ## Hors scope
 
-- Authentification forte (2FA, OAuth, rôles/admin) — l'auth actuelle est username + PIN haché, suffisante pour un cercle de confiance
+- Authentification forte (2FA, OAuth, rôles/admin) — l'auth actuelle est email + PIN haché, suffisante pour un cercle de confiance
 - Conseils financiers automatisés ou prévisions IA
 - Intégration directe avec les API bancaires (DSP2, Bridge, Powens)
 - Gestion d'investissements (PEA, actions, crypto)

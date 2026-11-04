@@ -59,10 +59,11 @@
           <span class="nav-label">Rechercher <kbd>/</kbd></span>
         </span>
       </button>
-      <button class="nav-item nav-item--accent" id="btn-import" aria-label="Importer CSV">
+      <button class="nav-item nav-item--accent" id="btn-import" aria-label="Importer">
         <span class="nav-pill">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/><path d="M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-          <span class="nav-label">Importer CSV</span>
+          <span class="nav-label">Importer</span>
+          <span class="nav-badge hidden" id="import-badge" aria-hidden="true"></span>
         </span>
       </button>
       <div class="nav-item nav-user hidden" id="header-user">
@@ -198,10 +199,11 @@
   <div id="modal-import" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-import-title">
     <div class="modal-box modal-box--wide">
       <div class="modal-header">
-        <h2 class="modal-title" id="modal-import-title">Importer un relevé CSV</h2>
+        <h2 class="modal-title" id="modal-import-title">Importer des opérations</h2>
         <button class="btn-icon" id="modal-import-close" aria-label="Fermer">&#10005;</button>
       </div>
       <div class="modal-body">
+        <div id="bank-panel" class="bank-panel hidden"></div>
         <div class="import-zone" id="import-zone">
           <label for="import-file">
             <span class="import-icon">&#8679;</span>

@@ -184,6 +184,25 @@ const TransferDB = {
   },
 };
 
+// Synchro bancaire (Enable Banking) : déployé uniquement, rien en local
+async function bankFetch(method, { body, query = '' } = {}) {
+  const opts = { method };
+  if (body !== undefined) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+  const res  = await apiFetch('/api/bank' + query, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Erreur de connexion bancaire');
+  return data;
+}
+const BankDB = {
+  status:     ()              => bankFetch('GET'),
+  aspsps:     ()              => bankFetch('GET', { query: '?aspsps=1' }),
+  connect:    (aspsp)         => bankFetch('POST', { body: { action: 'connect', aspsp } }),
+  session:    (code, state)   => bankFetch('POST', { body: { action: 'session', code, state } }),
+  sync:       ()              => bankFetch('POST', { body: { action: 'sync' } }),
+  ack:        (keys)          => bankFetch('POST', { body: { action: 'ack', keys } }),
+  disconnect: (session)       => bankFetch('DELETE', { query: `?session=${encodeURIComponent(session)}` }),
+};
+
 const categoriesStore = makeStore({
   endpoint:   '/api/categories',
   readLocal:  () => { const raw = localStorage.getItem(CATEGORIES_KEY); return raw ? JSON.parse(raw) : null; },
@@ -715,6 +734,7 @@ const state = {
   goals:        {},
   overrides:    [],
   transferRules: [],        // libellés normalisés des virements internes (jamais importés)
+  bank: { configured: false, links: [], pending: [] }, // synchro bancaire (déployé)
   view:         'calendar',
   currentYear:  today.getFullYear(),
   currentMonth: today.getMonth(),
@@ -1404,7 +1424,7 @@ function classifyImport(parsed, expenses, rules) {
   return rows;
 }
 
-let importRows  = null;  // [{ op, status, match?, checked, cat }] — aperçu en cours
+let importRows  = null;  // [{ op, status, match?, checked, cat, bankKey? }] — aperçu en cours
 let importRules = null;  // copie de state.transferRules modifiée pendant l'aperçu
 
 function openImportModal() {
@@ -1412,12 +1432,165 @@ function openImportModal() {
   $('import-file').value        = '';
   $('import-preview').innerHTML = '';
   $('btn-confirm-import').disabled = true;
+  renderBankPanel();
   $('modal-import').classList.remove('hidden');
 }
 
 function closeImportModal() {
   $('modal-import').classList.add('hidden');
   importRows = importRules = null;
+}
+
+// Lignes d'aperçu depuis des opérations parsées (CSV ou banque)
+function startImportPreview(parsed) {
+  importRules = new Set(state.transferRules);
+  importRows  = classifyImport(parsed, state.expenses, importRules).map(r => ({
+    ...r, checked: r.status === 'new', cat: r.op.category,
+    base: r.status === 'transfer' ? 'new' : r.status,   // statut si ⇄ est retiré
+    bankKey: r.op.bankKey,
+  }));
+  renderImportPreview();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Synchro bancaire (Enable Banking)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let bankBusy = false;
+let bankAspsps = null;
+
+function bankPendingOps() {
+  return state.bank.pending.map(t => ({
+    id: generateId(),
+    date: t.date, label: t.label, amount: t.amount, type: t.type,
+    category: t.type === 'revenu' ? INCOME_CATEGORY : guessCategory(t.label),
+    internal: isBuiltinTransfer(t.label, t.kind),
+    bankKey: t.key,
+  }));
+}
+
+function updateBankBadge() {
+  const n = state.bank.pending.length;
+  const badge = $('import-badge');
+  if (!badge) return;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.classList.toggle('hidden', !n);
+  $('btn-import').setAttribute('aria-label', n ? `Importer (${n} opération(s) bancaire(s) à vérifier)` : 'Importer');
+}
+
+const daysUntil = iso => Math.ceil((new Date(iso).getTime() - Date.now()) / 864e5);
+const fmtDateFR = iso => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+
+function renderBankPanel() {
+  const panel = $('bank-panel');
+  if (!IS_DEPLOYED || !state.bank.configured) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  const { links, pending } = state.bank;
+  const linked = new Set(links.map(l => l.aspsp));
+  panel.innerHTML = `
+    <div class="bank-head">
+      <h3 class="bank-title">Banques connectées</h3>
+      ${links.length ? `<button type="button" class="btn-secondary btn-sm" data-bank="sync" ${bankBusy ? 'disabled' : ''}>${bankBusy ? 'Synchronisation…' : '↻ Synchroniser'}</button>` : ''}
+    </div>
+    ${links.map(l => {
+      const d = daysUntil(l.validUntil);
+      const exp = d <= 0 ? '<span class="bank-err">autorisation expirée</span>'
+        : `<span class="${d <= 14 ? 'bank-warn' : ''}">autorisée jusqu'au ${fmtDateFR(l.validUntil)} (${d} j)</span>`;
+      return `
+      <div class="bank-link">
+        <div class="bank-link-main">
+          <strong>${escHtml(l.aspsp)}</strong>
+          <span class="bank-accounts">${l.accounts.map(a => escHtml([a.name, a.iban].filter(Boolean).join(' '))).join(' · ')}</span>
+          <span class="bank-meta">${exp}${l.lastSync ? ` · synchronisée le ${fmtDateFR(l.lastSync)}` : ''}</span>
+          ${l.error ? `<span class="bank-err">${escHtml(l.error)}</span>` : ''}
+        </div>
+        <div class="bank-link-actions">
+          ${d <= 14 || l.error ? `<button type="button" class="btn-secondary btn-sm" data-bank="connect" data-aspsp="${escHtml(l.aspsp)}" ${bankBusy ? 'disabled' : ''}>Reconnecter</button>` : ''}
+          <button type="button" class="btn-icon btn-sm" data-bank="disconnect" data-session="${escHtml(l.session)}" title="Déconnecter ${escHtml(l.aspsp)}" aria-label="Déconnecter ${escHtml(l.aspsp)}" ${bankBusy ? 'disabled' : ''}>✕</button>
+        </div>
+      </div>`;
+    }).join('')}
+    ${pending.length ? `<button type="button" class="btn-primary bank-review" data-bank="review">Vérifier ${pending.length} nouvelle(s) opération(s) bancaire(s)</button>`
+      : links.length ? '<p class="bank-meta">Aucune nouvelle opération bancaire.</p>' : ''}
+    <div class="bank-connect">
+      <select id="bank-aspsp" aria-label="Banque à connecter" ${bankBusy ? 'disabled' : ''}>
+        <option value="">${bankAspsps ? 'Connecter une banque…' : 'Chargement des banques…'}</option>
+        ${(bankAspsps || []).filter(a => !linked.has(a.name)).map(a => `<option value="${escHtml(a.name)}">${escHtml(a.name)}</option>`).join('')}
+      </select>
+      <button type="button" class="btn-secondary btn-sm" data-bank="connect" ${bankBusy ? 'disabled' : ''}>Connecter</button>
+    </div>
+  `;
+  if (!bankAspsps) {
+    bankAspsps = [];
+    BankDB.aspsps().then(list => { bankAspsps = list; renderBankPanel(); })
+      .catch(err => { bankAspsps = null; showToast(err.message); });
+  }
+}
+
+async function bankAction(fn, okMsg) {
+  if (bankBusy) return;
+  bankBusy = true;
+  renderBankPanel();
+  try {
+    const st = await fn();
+    if (st && st.links) state.bank = st;
+    if (okMsg) showToast(typeof okMsg === 'function' ? okMsg() : okMsg);
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    bankBusy = false;
+    updateBankBadge();
+    if (!$('modal-import').classList.contains('hidden')) renderBankPanel();
+  }
+}
+
+function onBankPanelClick(e) {
+  const btn = e.target.closest('button[data-bank]');
+  if (!btn || btn.disabled) return;
+  const action = btn.dataset.bank;
+  if (action === 'sync') {
+    bankAction(BankDB.sync, () => `${state.bank.pending.length} opération(s) bancaire(s) à vérifier`);
+  } else if (action === 'review') {
+    $('import-file').value = '';
+    startImportPreview(bankPendingOps());
+  } else if (action === 'disconnect') {
+    bankAction(() => BankDB.disconnect(btn.dataset.session), 'Banque déconnectée');
+  } else if (action === 'connect') {
+    const aspsp = btn.dataset.aspsp || $('bank-aspsp').value;
+    if (!aspsp) { $('bank-aspsp').focus(); return; }
+    // Redirection vers la banque ; retour sur /api/bank/callback → ?bank_code=…
+    bankAction(async () => { const { url } = await BankDB.connect(aspsp); window.location.href = url; });
+  }
+}
+
+// Au chargement (déployé) : finalise un retour de banque, puis récupère l'état
+async function loadBank() {
+  if (!IS_DEPLOYED) return;
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('bank_code'), st = params.get('bank_state'), error = params.get('bank_error');
+  if (code || error) history.replaceState(null, '', window.location.pathname);
+  try {
+    if (error) showToast(`Connexion bancaire annulée : ${error}`);
+    if (code && st) {
+      showToast('Connexion à la banque…');
+      state.bank = await BankDB.session(code, st);
+      showToast(`Banque connectée · ${state.bank.pending.length} opération(s) à vérifier`);
+      updateBankBadge();
+      openImportModal();
+      return;
+    }
+    state.bank = await BankDB.status();
+  } catch (err) {
+    if (code) showToast(err.message);
+    return;
+  }
+  updateBankBadge();
+  const expiring = state.bank.links.filter(l => daysUntil(l.validUntil) <= 7);
+  if (expiring.length) {
+    showToast(`Autorisation ${expiring.map(l => l.aspsp).join(', ')} : expire bientôt, reconnectez depuis l'import`);
+  } else if (state.bank.pending.length) {
+    showToast(`↻ ${state.bank.pending.length} nouvelle(s) opération(s) bancaire(s) à vérifier`);
+  }
 }
 
 function handleFileSelect(e) {
@@ -1440,12 +1613,7 @@ function handleFileSelect(e) {
       return;
     }
 
-    importRules = new Set(state.transferRules);
-    importRows  = classifyImport(parsed, state.expenses, importRules).map(r => ({
-      ...r, checked: r.status === 'new', cat: r.op.category,
-      base: r.status === 'transfer' ? 'new' : r.status,   // statut si ⇄ est retiré
-    }));
-    renderImportPreview();
+    startImportPreview(parsed);
   };
   reader.readAsArrayBuffer(file);
 }
@@ -1546,7 +1714,9 @@ async function confirmImport() {
   if (!importRows) return;
 
   const { ops, links } = importSelection();
-  const newOps = ops.map(({ internal, ...op }) => op);
+  const newOps = ops.map(({ internal, bankKey, ...op }) => op);
+  // Opérations bancaires vues dans l'aperçu (importées, écartées ou décochées) : traitées
+  const bankKeys = importRows.filter(r => r.bankKey).map(r => r.bankKey);
   const ignored   = importRows.filter(r => r.status === 'dup').length;
   const transfers = importRows.filter(r => r.status === 'transfer').length;
   const { add, remove } = importRuleChanges();
@@ -1564,9 +1734,17 @@ async function confirmImport() {
     (transfers ? ` · ${transfers} virement(s) interne(s) écarté(s)` : '') +
     (ignored ? ` · ${ignored} doublon(s) ignoré(s)` : ''));
 
-  if (!newOps.length) return;
+  const ackBank = () => {
+    if (!bankKeys.length) return;
+    const done = new Set(bankKeys);
+    state.bank.pending = state.bank.pending.filter(t => !done.has(t.key));
+    updateBankBadge();
+    BankDB.ack(bankKeys).catch(() => showToast('Opérations bancaires non marquées comme traitées'));
+  };
+  if (!newOps.length) { ackBank(); return; }
   try {
     await DB.addMany(newOps);
+    ackBank();
   } catch {
     const newIds = new Set(newOps.map(e => e.id));
     state.expenses = state.expenses.filter(e => !newIds.has(e.id));
@@ -2747,6 +2925,7 @@ async function init() {
   $('btn-confirm-import').addEventListener('click', confirmImport);
   $('import-preview').addEventListener('change', onImportPreviewEvent);
   $('import-preview').addEventListener('click', onImportPreviewEvent);
+  $('bank-panel').addEventListener('click', onBankPanelClick);
   $('import-file').addEventListener('change', handleFileSelect);
 
   // Modal ajout
@@ -2934,6 +3113,7 @@ async function loadAndRender() {
   } catch {}
 
   renderCalendar();
+  loadBank();
 }
 
 async function submitAuth() {

@@ -49,7 +49,11 @@ Deux modes complémentaires :
    - Le rapprochement avec les récurrences est recalculé sur les seules lignes cochées
    - **Rapprochement avec les récurrences** (`linkImportToRecurrences`) : une opération importée est liée (`recurId` + catégorie de la récurrence) si même type, montant à ±5 % (min 1 €) du montant attendu ce mois-là (override inclus), date à ±5 jours (`LINK_DAY_TOLERANCE`) d'une occurrence du même mois pas encore saisie ; candidates multiples → la plus proche. L'aperçu liste les liens ; évite le double comptage opération importée + rappel ↺.
 
-### Catégories
+3. **Synchro bancaire** (déployé uniquement, Enable Banking en **mode restreint** : gratuit, seuls les comptes liés à l'application dans le panneau Enable Banking sont accessibles — en pratique ceux du propriétaire de l'application)
+   - Panneau en tête de la modale d'import (`renderBankPanel`) : banques connectées, échéance du consentement (alerte ≤ 14 j, toast au chargement ≤ 7 j), Synchroniser, Reconnecter, Déconnecter (révoque la session), « Connecter une banque » (liste `GET /api/bank?aspsps=1`, France, particuliers)
+   - Connexion : `POST /api/bank {action:'connect'}` → URL de la banque (consentement max de la banque, ≤ 180 j) → retour sur `/api/bank/callback` → redirection `/?bank_code&bank_state` → `loadBank` finalise avec le token (`{action:'session'}`, state vérifié en base contre l'utilisateur, usage unique, 60 min). Une connexion par banque (la nouvelle remplace l'ancienne).
+   - Synchro : à la connexion, sur « Synchroniser » (avec en-têtes PSU = utilisateur présent) et chaque jour à 5 h UTC (cron Vercel `GET /api/bank?cron=1`, `CRON_SECRET`, « arrière-plan » : souvent 4 appels/jour max côté banque). 90 jours d'historique à la première synchro, puis depuis la dernière − 10 jours. Seules les opérations comptabilisées (`BOOK`) en EUR.
+   - Les opérations reçues sont stockées dans `bank_transactions` (`pending`) et **ne sont pas importées directement** : badge sur l'icône Importer + bouton « Vérifier N opérations » qui ouvre le même aperçu que le CSV (`startImportPreview`, doublons, virements internes, rapprochement). À la validation, toutes les lignes bancaires de l'aperçu passent en `done` (`{action:'ack'}`) et ne reviennent plus (clé `tx_key` = hash compte + id de transaction).
 
 - Liste dynamique, éditable dans l'onglet **Catégories**
 - Déployé : un nouveau compte ne reçoit que `Revenus` et `Autre` (seed d'`api/auth.js`) ; en local, liste par défaut codée dans `app.js` (`let CATEGORIES`)
@@ -156,6 +160,10 @@ api/
   goals.js        — GET / POST / DELETE : table goals
   categories.js   — GET / POST / DELETE : table categories ; {action:'merge'} : fusion (auto-migration de `archived`)
   plan.js         — Planning (page retirée) : conservé pour une éventuelle restauration
+  _bank.js        — client Enable Banking (JWT RS256), tables bank_*, synchro d'une connexion
+  bank/index.js   — GET/POST/DELETE /api/bank : état, banques, connexion, session, synchro, ack, déconnexion ; ?cron=1 (tâche planifiée)
+  bank/callback.js — retour de la banque → redirection vers l'appli
+vercel.json       — tâche planifiée quotidienne (synchro bancaire)
 migrations/       — scripts SQL historiques pour une base existante (cf. Tables SQL)
 docs/archive-planning/ — notes de l'ancien Planning (jours Besançon/Dijon, tarifs €/j)
 ```
@@ -257,6 +265,9 @@ plan_rates      — (user_id, category) PK, rate, updated_at — tarif de base �
 plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif surchargé pour un mois, FK categories CASCADE
 recurring_overrides — (user_id, recur_id, ym) PK, amount, updated_at — montant d'une récurrence modifié pour un mois, FK recurring_tasks CASCADE (créée par api/recurring.js au cold start)
 transfer_rules  — (user_id, label_key) PK, created_at — libellés normalisés des virements internes, jamais importés (créée par api/expenses.js au cold start)
+bank_links      — session_id PK, user_id, aspsp, country, valid_until, accounts (JSONB : uid, hash, name, iban masqué, currency), last_sync_at, last_error — connexions Enable Banking (api/_bank.js, cold start)
+bank_auth_states — state PK, user_id, aspsp, country, created_at — autorisations en cours (usage unique)
+bank_transactions — (user_id, tx_key) PK, date, label, amount, type, kind, account, status ('pending'|'done') — opérations reçues de la banque
 ```
 
 > Installation neuve : `schema.sql` suffit. Base existante, scripts historiques dans `migrations/` : `migrate-multiuser-1.sql` puis `migrate-multiuser-2.sql` (passage multi-user ; **remplacer `TON_ID` localement, ne jamais committer le vrai id**), `migrate-recur-link.sql` (`expenses.recur_id`), `migrate-plan.sql` + `migrate-plan-overrides.sql` (tables `plan_*`), `migrate-cat-mode.sql` (`categories.mode`), `migrate-cat-parent.sql` (`categories.parent`). `migrate-cat-archive.sql` et `recurring_overrides` sont appliqués automatiquement par les routes (`ensureSchema`).
@@ -280,6 +291,9 @@ Browser → /api/plan         → Postgres (plan_* WHERE user_id) — plus appel
 |--------------------|------------------------------------------------------------|
 | `POSTGRES_URL`     | URL de connexion Postgres (`postgresql://...`)            |
 | `APP_TOKEN_SECRET` | Secret de signature des tokens (chaîne aléatoire longue). **Obligatoire** en prod. |
+| `ENABLE_BANKING_APP_ID` | Id de l'application Enable Banking (production, mode restreint). Sans lui : synchro bancaire masquée. |
+| `ENABLE_BANKING_PRIVATE_KEY` | Clé privée PEM de l'application (multi-ligne, ou `\n` échappés). **Jamais dans le repo.** |
+| `CRON_SECRET` | Secret de la tâche planifiée (`vercel.json`) ; Vercel l'envoie en `Authorization: Bearer`. |
 
 > `APP_PIN` / `APP_TOKEN` (ancien système mono-utilisateur) ne sont plus utilisés.
 > Si `APP_TOKEN_SECRET` n'est pas défini, un secret de dev par défaut est utilisé (à ne pas laisser en prod).
@@ -320,7 +334,7 @@ Browser → /api/plan         → Postgres (plan_* WHERE user_id) — plus appel
 
 - Authentification forte (2FA, OAuth, rôles/admin) — l'auth actuelle est email + PIN haché, suffisante pour un cercle de confiance
 - Conseils financiers automatisés ou prévisions IA
-- Intégration directe avec les API bancaires (DSP2, Bridge, Powens)
+- Intégration bancaire au-delà d'Enable Banking en mode restreint (agrégateur payant, ouverture de la synchro à d'autres comptes que le propriétaire de l'application)
 - Gestion d'investissements (PEA, actions, crypto)
 
 ## Contexte utilisateur

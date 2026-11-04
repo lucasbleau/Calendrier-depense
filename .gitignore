@@ -4,3 +4,8 @@ node_modules/
 .env*.local
 .vercel
 *.csv
+
+# Secrets locaux (clé Enable Banking, secret du cron) : repo public
+*.pem
+*.key
+cron_id.txt

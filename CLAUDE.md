@@ -35,9 +35,18 @@ Deux modes complémentaires :
    - Auto-suggestion catégorie sur blur du champ libellé
 2. **Import CSV** avec détection automatique du format
    - Compatible Crédit Mutuel et Revolut
-   - Auto-détection des colonnes (date, libellé, montant, débit/crédit)
+   - Auto-détection des colonnes (date, libellé, montant, débit/crédit, frais, état)
+   - Fichier décodé en UTF-8, repli Windows-1252 (export Crédit Mutuel)
+   - Date retenue = date d'opération (pas la date de valeur CM ni la date de fin Revolut) ; heure ignorée
+   - Revolut : lignes annulées/refusées/échouées écartées (colonne État), frais ajoutés au montant
+   - Les CSV d'exemple à la racine sont ignorés par git (`*.csv`) : données personnelles, repo public
    - **Catégorisation apprise** (`guessCategory`, aussi au blur du libellé à la création) : libellé normalisé (`labelTokens` : sans accents, chiffres, ni bruit bancaire CB/PRLV/VIR…). Ordre : (1) opération passée au libellé normalisé identique, (2) opération passée partageant un mot nettement associé à une catégorie (≥ 70 % de ses occurrences), (3) `CATEGORY_KEYWORDS` sur **mots entiers**, l'id du mot-clé étant résolu vers la catégorie active réelle (`keywordCategory` : id actif, sinon libellé au même slug), (4) `autre`. Catégories archivées et `autre` jamais apprises.
-   - Doublons (même date + libellé + montant qu'une opération existante) écartés dès l'aperçu
+   - **Aperçu à cases à cocher** (`classifyImport` → `renderImportPreview`), chaque ligne classée :
+     - `dup` : même date + libellé + montant qu'une opération enregistrée (multiensemble : deux achats identiques le même jour restent deux) → ignorée, réimporter un CSV n'ajoute rien
+     - `transfer` : **virement interne**, jamais importé ni compté. Reconnu d'office (`isBuiltinTransfer` : Type Revolut « Ajout de fonds »/top-up/change, libellé livret/LDD/LEP/interépargne) ou par règle apprise : le bouton ⇄ d'une ligne marque son libellé normalisé (`transferKey` = `labelTokens` joints, ex. « VIR INST LUCAS REVOLUT VG » → `lucas revolut`) pour toutes les lignes identiques et pour les imports suivants. Règles en base (table `transfer_rules`, `GET /api/expenses?transfers=1`, `POST /api/expenses {action:'transfers', add, remove}`, auto-migration) ou `localStorage` en local ; enregistrées à la validation de l'import
+     - `maybe` : même type et montant qu'une opération enregistrée à ±3 jours (`MAYBE_DUP_DAYS`), libellé différent (saisie manuelle probable) → décochée, affichée en tête avec l'opération existante
+     - `new` : cochée
+   - Le rapprochement avec les récurrences est recalculé sur les seules lignes cochées
    - **Rapprochement avec les récurrences** (`linkImportToRecurrences`) : une opération importée est liée (`recurId` + catégorie de la récurrence) si même type, montant à ±5 % (min 1 €) du montant attendu ce mois-là (override inclus), date à ±5 jours (`LINK_DAY_TOLERANCE`) d'une occurrence du même mois pas encore saisie ; candidates multiples → la plus proche. L'aperçu liste les liens ; évite le double comptage opération importée + rappel ↺.
 
 ### Catégories
@@ -247,6 +256,7 @@ plan_days       — (user_id, category, date) PK — jours peints (vue Planning,
 plan_rates      — (user_id, category) PK, rate, updated_at — tarif de base €/jour, FK categories CASCADE
 plan_rate_overrides — (user_id, category, ym) PK, rate, updated_at — tarif surchargé pour un mois, FK categories CASCADE
 recurring_overrides — (user_id, recur_id, ym) PK, amount, updated_at — montant d'une récurrence modifié pour un mois, FK recurring_tasks CASCADE (créée par api/recurring.js au cold start)
+transfer_rules  — (user_id, label_key) PK, created_at — libellés normalisés des virements internes, jamais importés (créée par api/expenses.js au cold start)
 ```
 
 > Installation neuve : `schema.sql` suffit. Base existante, scripts historiques dans `migrations/` : `migrate-multiuser-1.sql` puis `migrate-multiuser-2.sql` (passage multi-user ; **remplacer `TON_ID` localement, ne jamais committer le vrai id**), `migrate-recur-link.sql` (`expenses.recur_id`), `migrate-plan.sql` + `migrate-plan-overrides.sql` (tables `plan_*`), `migrate-cat-mode.sql` (`categories.mode`), `migrate-cat-parent.sql` (`categories.parent`). `migrate-cat-archive.sql` et `recurring_overrides` sont appliqués automatiquement par les routes (`ensureSchema`).

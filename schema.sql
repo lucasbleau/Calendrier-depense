@@ -129,3 +129,11 @@ CREATE TABLE IF NOT EXISTS recurring_overrides (
   updated_at TIMESTAMPTZ    DEFAULT NOW(),
   PRIMARY KEY (user_id, recur_id, ym)
 );
+
+-- Virements internes : libellés normalisés (labelTokens) jamais importés
+CREATE TABLE IF NOT EXISTS transfer_rules (
+  user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label_key  TEXT        NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, label_key)
+);

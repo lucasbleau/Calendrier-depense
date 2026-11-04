@@ -11,6 +11,7 @@ const AUTH_KEY       = 'expense-calendar-auth-v1';
 const USER_KEY       = 'expense-calendar-user-v1';
 const CATEGORIES_KEY = 'expense-calendar-categories-v1';
 const OVERRIDES_KEY  = 'expense-calendar-recurring-overrides-v1';
+const TRANSFERS_KEY  = 'expense-calendar-transfer-rules-v1';
 
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
@@ -161,6 +162,28 @@ const OverrideDB = {
   importMissing: (items) => overridesStore.send('POST', { body: { action: 'overrides', set: items, onlyMissing: true } }),
 };
 
+// Virements internes : libellés normalisés (transferKey) à ne jamais importer
+const transfersStore = makeStore({
+  endpoint:   '/api/expenses',
+  readLocal:  () => { try { return JSON.parse(localStorage.getItem(TRANSFERS_KEY) || '[]'); } catch { return []; } },
+  writeLocal: () => localStorage.setItem(TRANSFERS_KEY, JSON.stringify(state.transferRules)),
+});
+const TransferDB = {
+  async load() {
+    if (!IS_DEPLOYED) return transfersStore.load();
+    const res = await apiFetch('/api/expenses?transfers=1');
+    if (!res.ok) { const e = new Error('Chargement des virements internes échoué'); e.status = res.status; throw e; }
+    return res.json();
+  },
+  async save(add, remove) {
+    if (!IS_DEPLOYED) { localStorage.setItem(TRANSFERS_KEY, JSON.stringify(state.transferRules)); return; }
+    for (let i = 0; i < Math.max(add.length, remove.length); i += 500) {
+      await transfersStore.send('POST', { body: { action: 'transfers', add: add.slice(i, i + 500), remove: remove.slice(i, i + 500) } });
+    }
+    if (IS_DEPLOYED) localStorage.setItem(userCacheKey(TRANSFERS_KEY), JSON.stringify(state.transferRules));
+  },
+};
+
 const categoriesStore = makeStore({
   endpoint:   '/api/categories',
   readLocal:  () => { const raw = localStorage.getItem(CATEGORIES_KEY); return raw ? JSON.parse(raw) : null; },
@@ -206,13 +229,21 @@ function fmtCompact(n) {
 
 function parseAmount(str) {
   if (typeof str === 'number') return Math.abs(str);
-  const clean = String(str).replace(/\s/g, '').replace(',', '.').replace('€', '').replace('+', '');
+  let clean = String(str).replace(/[\s€+]/g, '');
+  // Avec point et virgule, le premier des deux sépare les milliers (1.234,56 ou 1,234.56)
+  if (clean.includes('.') && clean.includes(',')) {
+    clean = clean.indexOf('.') < clean.indexOf(',')
+      ? clean.replace(/\./g, '').replace(',', '.')
+      : clean.replace(/,/g, '');
+  } else {
+    clean = clean.replace(',', '.');
+  }
   return Math.abs(parseFloat(clean)) || 0;
 }
 
 function parseDate(str) {
   if (!str) return null;
-  str = String(str).trim();
+  str = String(str).trim().replace(/[ T]\d{1,2}:\d{2}(:\d{2})?.*$/, '');
   if (/^\d{4}[-/.]\d{2}[-/.]\d{2}$/.test(str)) {
     return str.slice(0, 10).replace(/[/.]/g, '-');
   }
@@ -221,8 +252,10 @@ function parseDate(str) {
   return null;
 }
 
+// 10 caractères aléatoires : un import de milliers de lignes dans la même
+// milliseconde ne doit pas produire de collision (perdue par ON CONFLICT DO NOTHING)
 function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 12).padEnd(10, '0');
 }
 
 function getOverride(recurId, ym) {
@@ -520,6 +553,22 @@ function getRecurringForDay(year, month, day) {
 // Import CSV
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Clé d'un libellé pour les règles de virement interne : « VIR INST LUCAS REVOLUT VG »
+// → « lucas revolut » (stable d'un relevé à l'autre, distingue les titulaires).
+function transferKey(label) {
+  return labelTokens(label).join(' ');
+}
+
+// Virements internes reconnus sans règle : rechargement / change Revolut (colonne Type),
+// mouvements vers ou depuis un livret ou un compte d'épargne.
+const INTERNAL_KIND  = /ajout de fonds|top.?up|recharge|^change$|exchange/;
+// (pas « epargne » seul : « VIR … CAISSE D'EPARGNE » peut venir d'un tiers)
+const INTERNAL_LABEL = /\b(livrets?|ldds?|lep|interepargne)\b/;
+function isBuiltinTransfer(label, kind) {
+  const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  return INTERNAL_KIND.test(norm(kind)) || INTERNAL_LABEL.test(norm(label));
+}
+
 function detectAndParseCSV(text) {
   text = text.replace(/^﻿/, '');
   const sep = (text.match(/;/g) || []).length > (text.match(/,/g) || []).length ? ';' : ',';
@@ -542,23 +591,37 @@ function detectAndParseCSV(text) {
     h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   );
 
-  let dateCol = -1, labelCol = -1, amountCol = -1, debitCol = -1, creditCol = -1;
+  // Date d'opération plutôt que date de valeur (Crédit Mutuel) ou de fin (Revolut) :
+  // elles peuvent décaler l'opération de plusieurs jours, voire de mois.
+  const secondaryDate = h => /valeur|value|fin|completed|end/.test(h);
+  let dateCol = -1, dateFallback = -1, labelCol = -1, amountCol = -1, debitCol = -1, creditCol = -1, feeCol = -1, stateCol = -1, kindCol = -1;
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];
-    if (h.includes('date'))                                                          dateCol   = i;
+    if (h.includes('date')) {
+      if (!secondaryDate(h)) { if (dateCol === -1) dateCol = i; }
+      else if (dateFallback === -1) dateFallback = i;
+    }
     if (h.includes('libelle') || h.includes('description') || h.includes('intitule') || h.includes('motif')) labelCol  = i;
     if (h.includes('montant') || h === 'amount')                                     amountCol = i;
     if (h.includes('debit'))                                                         debitCol  = i;
     if (h.includes('credit'))                                                        creditCol = i;
+    if (h === 'frais' || h === 'fee')                                                feeCol    = i;
+    if (h === 'etat' || h === 'state')                                               stateCol  = i;
+    if (h === 'type')                                                                kindCol   = i;
   }
+  if (dateCol === -1) dateCol = dateFallback;
 
   if (dateCol === -1) return [];
+
+  // Opérations Revolut annulées, refusées ou échouées : jamais débitées
+  const voidState = /annul|refus|echou|revert|declin|fail/;
 
   const results = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = splitLine(lines[i]);
-    const date = parseDate(cols[dateCol]);
+    const date = parseDate(cols[dateCol]) || (dateFallback >= 0 ? parseDate(cols[dateFallback]) : null);
     if (!date) continue;
+    if (stateCol >= 0 && voidState.test((cols[stateCol] || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''))) continue;
 
     const label = (labelCol >= 0 && cols[labelCol]) ? cols[labelCol] : 'Opération';
     let amount = 0, type = 'depense';
@@ -568,6 +631,8 @@ function detectAndParseCSV(text) {
       const isNeg  = rawStr.trim().startsWith('-');
       amount = parseAmount(rawStr);
       type   = isNeg ? 'depense' : 'revenu';
+      const fee = feeCol >= 0 ? parseAmount(cols[feeCol] || '') : 0;
+      if (fee) amount = Math.round((type === 'depense' ? amount + fee : amount - fee) * 100) / 100;
     } else if (debitCol >= 0 || creditCol >= 0) {
       const debit  = debitCol  >= 0 ? parseAmount(cols[debitCol]  || '') : 0;
       const credit = creditCol >= 0 ? parseAmount(cols[creditCol] || '') : 0;
@@ -584,6 +649,7 @@ function detectAndParseCSV(text) {
       amount,
       type,
       category: type === 'revenu' ? INCOME_CATEGORY : guessCategory(label),
+      internal: isBuiltinTransfer(label, kindCol >= 0 ? cols[kindCol] : ''),
     });
   }
 
@@ -648,6 +714,7 @@ const state = {
   recurring:    [],
   goals:        {},
   overrides:    [],
+  transferRules: [],        // libellés normalisés des virements internes (jamais importés)
   view:         'calendar',
   currentYear:  today.getFullYear(),
   currentMonth: today.getMonth(),
@@ -1301,11 +1368,47 @@ async function saveNewExpense() {
 // Modal : Import CSV
 // ─────────────────────────────────────────────────────────────────────────────
 
-let pendingImport  = null;  // nouvelles opérations (doublons écartés), déjà rapprochées
-let pendingIgnored = 0;     // doublons écartés à l'aperçu
+// Classe chaque ligne importée :
+//  'dup'      identique (date, libellé, montant) à une opération enregistrée — compté
+//             en multiensemble : deux achats identiques le même jour restent deux ;
+//  'transfer' virement interne (règle apprise ou reconnu d'office, cf. isBuiltinTransfer) ;
+//  'maybe'    même type et montant qu'une opération enregistrée à ±3 jours mais libellé
+//             différent : probablement saisie à la main → décochée, à vérifier ;
+//  'new'      le reste.
+const MAYBE_DUP_DAYS = 3;
+function classifyImport(parsed, expenses, rules) {
+  const dayNum  = d => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 864e5;
+  const cents   = a => Math.round(a * 100);
+  const push    = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
+  const exact = new Map(), byAmount = new Map();
+  for (const e of expenses) {
+    push(exact, `${e.date}|${e.label}|${cents(e.amount)}`, e);
+    push(byAmount, `${e.type}|${cents(e.amount)}`, e);
+  }
+  const claimed = new Set();
+  const rows = [];
+  for (const op of parsed) {
+    const same = (exact.get(`${op.date}|${op.label}|${cents(op.amount)}`) || []).find(e => !claimed.has(e));
+    if (same) { claimed.add(same); rows.push({ op, status: 'dup' }); continue; }
+    const key = transferKey(op.label);
+    if (op.internal || (key && rules.has(key))) { rows.push({ op, status: 'transfer' }); continue; }
+    let match = null;
+    for (const e of byAmount.get(`${op.type}|${cents(op.amount)}`) || []) {
+      if (claimed.has(e) || e.label === op.label) continue;
+      const gap = Math.abs(dayNum(e.date) - dayNum(op.date));
+      if (gap <= MAYBE_DUP_DAYS && (!match || gap < match.gap)) match = { e, gap };
+    }
+    if (match) { claimed.add(match.e); rows.push({ op, status: 'maybe', match: match.e }); continue; }
+    rows.push({ op, status: 'new' });
+  }
+  return rows;
+}
+
+let importRows  = null;  // [{ op, status, match?, checked, cat }] — aperçu en cours
+let importRules = null;  // copie de state.transferRules modifiée pendant l'aperçu
 
 function openImportModal() {
-  pendingImport = null;
+  importRows = importRules = null;
   $('import-file').value        = '';
   $('import-preview').innerHTML = '';
   $('btn-confirm-import').disabled = true;
@@ -1314,7 +1417,7 @@ function openImportModal() {
 
 function closeImportModal() {
   $('modal-import').classList.add('hidden');
-  pendingImport = null;
+  importRows = importRules = null;
 }
 
 function handleFileSelect(e) {
@@ -1323,57 +1426,145 @@ function handleFileSelect(e) {
 
   const reader = new FileReader();
   reader.onload = ev => {
-    const parsed  = detectAndParseCSV(ev.target.result);
+    // Crédit Mutuel exporte en Windows-1252 : repli si le fichier n'est pas de l'UTF-8 valide
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(ev.target.result); }
+    catch { text = new TextDecoder('windows-1252').decode(ev.target.result); }
+    const parsed  = detectAndParseCSV(text);
     const preview = $('import-preview');
 
     if (!parsed.length) {
-      pendingImport = null;
+      importRows = importRules = null;
       preview.innerHTML = '<p class="import-error">Aucune opération détectée. Vérifiez le format (en-tête requis : Date, Libellé, Montant ou Débit/Crédit).</p>';
       $('btn-confirm-import').disabled = true;
       return;
     }
 
-    const existing = new Set(state.expenses.map(e => `${e.date}|${e.label}|${e.amount}`));
-    pendingImport  = parsed.filter(e => !existing.has(`${e.date}|${e.label}|${e.amount}`));
-    pendingIgnored = parsed.length - pendingImport.length;
-    const links    = linkImportToRecurrences(pendingImport);
-
-    const shown = pendingImport.slice(0, 8);
-    preview.innerHTML = `
-      <p class="import-info">${pendingImport.length} nouvelle(s) opération(s)${pendingIgnored ? ` · ${pendingIgnored} doublon(s) ignoré(s)` : ''}</p>
-      ${links.length ? `<p class="import-info import-links">↺ ${links.length} liée(s) à une récurrence (pas de double comptage) :
-        ${links.slice(0, 4).map(l => `<span class="import-link">${l.op.date.slice(8, 10)}/${l.op.date.slice(5, 7)} ${l.op.label} → ${l.task.label}</span>`).join('')}
-        ${links.length > 4 ? `<span class="import-link">… et ${links.length - 4} autre(s)</span>` : ''}</p>` : ''}
-      <ul class="import-list">
-        ${shown.map(e => `
-          <li>
-            <span class="import-date">${e.date}</span>
-            <span class="import-label" title="${e.label}">${e.recurId ? '↺ ' : ''}${e.label}</span>
-            <span class="import-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
-          </li>
-        `).join('')}
-        ${pendingImport.length > 8 ? `<li class="import-more">… et ${pendingImport.length - 8} opération(s) de plus</li>` : ''}
-      </ul>
-    `;
-    $('btn-confirm-import').disabled = !pendingImport.length;
+    importRules = new Set(state.transferRules);
+    importRows  = classifyImport(parsed, state.expenses, importRules).map(r => ({
+      ...r, checked: r.status === 'new', cat: r.op.category,
+      base: r.status === 'transfer' ? 'new' : r.status,   // statut si ⇄ est retiré
+    }));
+    renderImportPreview();
   };
-  reader.readAsText(file, 'UTF-8');
+  reader.readAsArrayBuffer(file);
+}
+
+const escHtml = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+
+// Opérations cochées, rapprochées des récurrences (recalculé à chaque changement :
+// une ligne décochée ne doit pas « consommer » une occurrence).
+function importSelection() {
+  for (const r of importRows) { delete r.op.recurId; r.op.category = r.cat; }
+  const ops = importRows.filter(r => r.checked && r.status !== 'dup' && r.status !== 'transfer').map(r => r.op);
+  return { ops, links: linkImportToRecurrences(ops) };
+}
+
+function importRuleChanges() {
+  const before = new Set(state.transferRules);
+  return {
+    add:    [...importRules].filter(k => !before.has(k)),
+    remove: [...before].filter(k => !importRules.has(k)),
+  };
+}
+
+function renderImportPreview() {
+  const preview = $('import-preview');
+  const scroll  = preview.scrollTop;
+  const { ops, links } = importSelection();
+  const count = s => importRows.filter(r => r.status === s).length;
+  const dups = count('dup'), transfers = count('transfer'), maybes = count('maybe');
+  const ddmm = d => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+  // À vérifier d'abord (doublons probables, virements), puis le reste du plus récent au plus ancien
+  const rank = { maybe: 0, transfer: 1, new: 2 };
+  const shown = importRows.map((r, i) => ({ r, i })).filter(({ r }) => r.status !== 'dup')
+    .sort((a, b) => rank[a.r.status] - rank[b.r.status] || b.r.op.date.localeCompare(a.r.op.date));
+
+  preview.innerHTML = `
+    <p class="import-info">${ops.length} opération(s) à importer</p>
+    <p class="import-sub">${[
+      dups      ? `<span>${dups} déjà enregistrée(s), ignorée(s)</span>` : '',
+      transfers ? `<span>⇄ ${transfers} virement(s) interne(s) écarté(s)</span>` : '',
+      maybes    ? `<span class="import-warn">${maybes} doublon(s) probable(s) décoché(s) — à vérifier</span>` : '',
+    ].join('')}</p>
+    ${links.length ? `<p class="import-info import-links">↺ ${links.length} liée(s) à une récurrence (pas de double comptage) :
+      ${links.slice(0, 4).map(l => `<span class="import-link">${ddmm(l.op.date)} ${escHtml(l.op.label)} → ${escHtml(l.task.label)}</span>`).join('')}
+      ${links.length > 4 ? `<span class="import-link">… et ${links.length - 4} autre(s)</span>` : ''}</p>` : ''}
+    <p class="import-hint-line">⇄ marque un libellé comme virement entre vos comptes : il ne sera plus jamais importé.</p>
+    ${shown.length ? `<ul class="import-list">
+      ${shown.map(({ r, i }) => {
+        const e = r.op, transfer = r.status === 'transfer';
+        const note = transfer ? '<span class="import-tag">virement interne</span>'
+          : r.status === 'maybe' ? `<span class="import-tag warn" title="${escHtml(r.match.label)}">déjà saisie le ${ddmm(r.match.date)} ? « ${escHtml(r.match.label)} »</span>` : '';
+        return `
+        <li class="${transfer || !r.checked ? 'is-off' : ''}">
+          <input type="checkbox" data-row="${i}" ${r.checked && !transfer ? 'checked' : ''} ${transfer ? 'disabled' : ''}
+            aria-label="Importer ${escHtml(e.label)}">
+          <span class="import-date">${e.date}</span>
+          <span class="import-label" title="${escHtml(e.label)}">${e.recurId ? '↺ ' : ''}${escHtml(e.label)}${note}</span>
+          <span class="import-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
+          <button type="button" class="import-transfer${transfer ? ' active' : ''}" data-transfer="${i}"
+            title="${transfer ? 'Pas un virement interne : importer' : 'Virement entre mes comptes : ne jamais importer'}"
+            aria-pressed="${transfer}">⇄</button>
+        </li>`;
+      }).join('')}
+    </ul>` : ''}
+  `;
+  preview.scrollTop = scroll;
+  const { add, remove } = importRuleChanges();
+  $('btn-confirm-import').disabled = !ops.length && !add.length && !remove.length;
+}
+
+// ⇄ : bascule toutes les lignes du même libellé normalisé et mémorise la règle
+function toggleImportTransfer(i) {
+  const row = importRows[i];
+  const key = transferKey(row.op.label);
+  const makeTransfer = row.status !== 'transfer';
+  const targets = key ? importRows.filter(r => r.status !== 'dup' && transferKey(r.op.label) === key) : [row];
+  for (const r of targets) {
+    if (makeTransfer) { r.status = 'transfer'; r.checked = false; }
+    else if (r.status === 'transfer') { r.status = r.base; r.checked = r.base === 'new'; }
+  }
+  if (key) makeTransfer ? importRules.add(key) : importRules.delete(key);
+  renderImportPreview();
+}
+
+function onImportPreviewEvent(e) {
+  if (!importRows) return;
+  const box = e.target.closest('input[data-row]');
+  if (box && e.type === 'change') {
+    importRows[+box.dataset.row].checked = box.checked;
+    renderImportPreview();
+    return;
+  }
+  const btn = e.target.closest('button[data-transfer]');
+  if (btn && e.type === 'click') toggleImportTransfer(+btn.dataset.transfer);
 }
 
 async function confirmImport() {
-  if (!pendingImport?.length) return;
+  if (!importRows) return;
 
-  const newOps  = pendingImport;
-  const ignored = pendingIgnored;
-  const linked  = newOps.filter(e => e.recurId).length;
+  const { ops, links } = importSelection();
+  const newOps = ops.map(({ internal, ...op }) => op);
+  const ignored   = importRows.filter(r => r.status === 'dup').length;
+  const transfers = importRows.filter(r => r.status === 'transfer').length;
+  const { add, remove } = importRuleChanges();
+
+  if (add.length || remove.length) {
+    state.transferRules = [...importRules];
+    TransferDB.save(add, remove).catch(() => showToast('Erreur de sauvegarde des virements internes'));
+  }
 
   state.expenses.push(...newOps);
   closeImportModal();
   renderCalendar();
   showToast(`${newOps.length} opération(s) importée(s)` +
-    (linked ? ` · ${linked} liée(s) à une récurrence` : '') +
-    (ignored > 0 ? ` · ${ignored} doublon(s) ignoré(s)` : ''));
+    (links.length ? ` · ${links.length} liée(s) à une récurrence` : '') +
+    (transfers ? ` · ${transfers} virement(s) interne(s) écarté(s)` : '') +
+    (ignored ? ` · ${ignored} doublon(s) ignoré(s)` : ''));
 
+  if (!newOps.length) return;
   try {
     await DB.addMany(newOps);
   } catch {
@@ -2554,6 +2745,8 @@ async function init() {
   $('modal-import-close').addEventListener('click', closeImportModal);
   $('btn-cancel-import').addEventListener('click', closeImportModal);
   $('btn-confirm-import').addEventListener('click', confirmImport);
+  $('import-preview').addEventListener('change', onImportPreviewEvent);
+  $('import-preview').addEventListener('click', onImportPreviewEvent);
   $('import-file').addEventListener('change', handleFileSelect);
 
   // Modal ajout
@@ -2697,6 +2890,11 @@ async function loadAndRender() {
         try { return JSON.parse(localStorage.getItem(userCacheKey(OVERRIDES_KEY)) || '[]'); } catch { return []; }
       })]);
     await migrateLegacyOverrides();
+    // Non bloquant : sans les règles, l'import retombe sur le dernier cache
+    state.transferRules = await TransferDB.load().catch(() => {
+      try { return JSON.parse(localStorage.getItem(userCacheKey(TRANSFERS_KEY)) || '[]'); } catch { return []; }
+    });
+    if (IS_DEPLOYED) localStorage.setItem(userCacheKey(TRANSFERS_KEY), JSON.stringify(state.transferRules));
     // Cache local du dernier chargement réussi → alimente le fallback hors ligne ci-dessous
     if (IS_DEPLOYED) {
       localStorage.setItem(userCacheKey(STORAGE_KEY),   JSON.stringify(state.expenses));
@@ -2720,6 +2918,7 @@ async function loadAndRender() {
     state.recurring = JSON.parse(localStorage.getItem(userCacheKey(RECURRING_KEY)) || '[]');
     state.goals     = JSON.parse(localStorage.getItem(userCacheKey(GOALS_KEY))     || '{}');
     try { state.overrides = JSON.parse(localStorage.getItem(userCacheKey(OVERRIDES_KEY)) || '[]'); } catch { state.overrides = []; }
+    try { state.transferRules = JSON.parse(localStorage.getItem(userCacheKey(TRANSFERS_KEY)) || '[]'); } catch { state.transferRules = []; }
   } finally {
     overlay.classList.add('hidden');
   }

@@ -20,6 +20,8 @@ async function ensureSchema(client) {
     )`);
   // Date de départ : NULL = compte sur tous les mois (récurrences antérieures).
   await client.query('ALTER TABLE recurring_tasks ADD COLUMN IF NOT EXISTS start_date DATE');
+  // Libellés bancaires normalisés (appris ou saisis) : rapprochement à l'import quel que soit le montant
+  await client.query("ALTER TABLE recurring_tasks ADD COLUMN IF NOT EXISTS match_labels JSONB NOT NULL DEFAULT '[]'");
   schemaReady = true;
 }
 
@@ -39,7 +41,7 @@ module.exports = withDb('recurring', 'GET,POST,DELETE,OPTIONS', async (req, res,
     }
     const { rows } = await client.query(
       `SELECT id, label, amount::float AS amount, type, category, days,
-              to_char(start_date, 'YYYY-MM-DD') AS "startDate"
+              to_char(start_date, 'YYYY-MM-DD') AS "startDate", match_labels AS "matchLabels"
        FROM recurring_tasks WHERE user_id = $1 ORDER BY created_at ASC`,
       [uid]
     );
@@ -88,7 +90,11 @@ module.exports = withDb('recurring', 'GET,POST,DELETE,OPTIONS', async (req, res,
   }
 
   if (req.method === 'POST') {
-    const { id, label, amount, type, category, days, startDate = null } = req.body;
+    const { id, label, amount, type, category, days, startDate = null, matchLabels = [] } = req.body;
+    if (!Array.isArray(matchLabels) || matchLabels.length > 20 ||
+        !matchLabels.every(k => typeof k === 'string' && k.length > 0 && k.length <= 200)) {
+      return res.status(400).json({ error: 'matchLabels invalide' });
+    }
     if (!id || !label || !String(label).trim()) return res.status(400).json({ error: 'id et label requis' });
     if (!Number.isFinite(amount) || amount < 0)  return res.status(400).json({ error: 'amount invalide' });
     if (!TYPES.includes(type))                    return res.status(400).json({ error: 'type invalide' });
@@ -96,12 +102,12 @@ module.exports = withDb('recurring', 'GET,POST,DELETE,OPTIONS', async (req, res,
     if (startDate !== null && !DATE_RE.test(startDate)) return res.status(400).json({ error: 'startDate invalide' });
 
     await client.query(
-      `INSERT INTO recurring_tasks (id, label, amount, type, category, days, start_date, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO recurring_tasks (id, label, amount, type, category, days, start_date, match_labels, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (id) DO UPDATE
-       SET label=$2, amount=$3, type=$4, category=$5, days=$6, start_date=$7
-       WHERE recurring_tasks.user_id = $8`,
-      [id, label, amount, type, category, JSON.stringify(days), startDate, uid]
+       SET label=$2, amount=$3, type=$4, category=$5, days=$6, start_date=$7, match_labels=$8
+       WHERE recurring_tasks.user_id = $9`,
+      [id, label, amount, type, category, JSON.stringify(days), startDate, JSON.stringify(matchLabels), uid]
     );
     return res.json({ ok: true });
   }

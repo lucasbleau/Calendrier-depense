@@ -675,13 +675,31 @@ function detectAndParseCSV(text) {
   return results;
 }
 
+// Libellés bancaires d'une récurrence (task.matchLabels, appris via « lier à… »
+// dans l'aperçu ou saisis dans la récurrence) : une règle correspond si tous ses
+// mots normalisés figurent dans le libellé (« free mobile » ⊂ « PRLV FREE MOBILE ECH »).
+function recurLabelMatches(task, tokens) {
+  return (task.matchLabels || []).some(rule => {
+    const words = rule.split(' ').filter(Boolean);
+    return words.length > 0 && words.every(w => tokens.has(w));
+  });
+}
+
+// Normalise une saisie « Free Mobile, EDF » → ['free mobile', 'edf']
+function parseMatchLabels(text) {
+  return [...new Set(String(text).split(/[,;\n]/).map(transferKey).filter(Boolean))].slice(0, 20);
+}
+
 // Rapproche des opérations importées des récurrences, pour éviter le double
-// comptage (opération importée + rappel ↺). Une opération est liée (recurId,
-// catégorie de la récurrence) si : même type, montant à ±5 % (min 1 €) du
-// montant attendu ce mois-là, date à ±5 jours d'une occurrence du même mois
-// pas encore saisie. Plusieurs candidates → la plus proche (montant puis date).
-// Renvoie [{ op, task }] ; les opérations sont modifiées en place.
-const LINK_DAY_TOLERANCE = 5;
+// comptage (opération importée + rappel ↺). Toujours une occurrence du même mois
+// pas encore saisie (la plus proche), même type ; puis :
+//  - choix manuel de l'aperçu (op._recurChoice = id, '' = aucune) : prioritaire ;
+//  - libellé bancaire connu de la récurrence : montant libre, date à ±10 jours ;
+//  - sinon montant à ±5 % (min 1 €) du montant attendu ce mois-là, date à ±5 jours.
+// Plusieurs candidates → libellé d'abord, puis montant le plus proche, puis date.
+// Renvoie [{ op, task, how: 'manual'|'label'|'amount' }] ; ops modifiées en place.
+const LINK_DAY_TOLERANCE  = 5;
+const LABEL_DAY_TOLERANCE = 10;
 function linkImportToRecurrences(ops) {
   const taken = new Set();   // `${taskId}|${ym}|${day}` déjà couverte
   const realizedCache = {};
@@ -691,33 +709,50 @@ function linkImportToRecurrences(ops) {
     realizedCache[k] ??= realizedRecurDays(task, y, m);
     return realizedCache[k].has(day) || taken.has(`${k}|${day}`);
   };
-  const links = [];
-  for (const op of [...ops].sort((a, b) => a.date.localeCompare(b.date))) {
-    if (op.recurId) continue;
-    const y = +op.date.slice(0, 4), m = +op.date.slice(5, 7) - 1, d = +op.date.slice(8, 10);
+  const parts = op => [+op.date.slice(0, 4), +op.date.slice(5, 7) - 1, +op.date.slice(8, 10)];
+  const link = (op, task, day, how) => {
+    if (day !== null) { const [y, m] = parts(op); taken.add(`${task.id}|${ymKey(y, m)}|${day}`); }
+    op.recurId  = task.id;
+    op.category = task.category;
+    links.push({ op, task, how });
+  };
+  const links  = [];
+  const sorted = [...ops].sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const op of sorted) {
+    if (op.recurId || !op._recurChoice) continue;
+    const task = state.recurring.find(t => t.id === op._recurChoice);
+    if (!task) continue;
+    const [y, m, d] = parts(op);
+    let day = null;
+    for (const occ of recurDaysInMonth(task, y, m)) {
+      if (!isTaken(task, y, m, occ) && (day === null || Math.abs(occ - d) < Math.abs(day - d))) day = occ;
+    }
+    link(op, task, day, 'manual');
+  }
+
+  for (const op of sorted) {
+    if (op.recurId || op._recurChoice !== undefined) continue;
+    const [y, m, d] = parts(op);
     const ym = ymKey(y, m);
+    const tokens = new Set(labelTokens(op.label));
     let best = null;
     for (const task of state.recurring) {
       if (task.type !== op.type || !CATEGORIES.some(c => c.id === task.category)) continue;
       const ov = getOverride(task.id, ym);
-      const expected = ov ? ov.amount : task.amount;
-      if (!(expected > 0)) continue;
+      const expected  = ov ? ov.amount : task.amount;
       const amountGap = Math.abs(op.amount - expected);
-      if (amountGap > Math.max(1, expected * 0.05)) continue;
+      const byLabel   = recurLabelMatches(task, tokens);
+      if (!byLabel && (!(expected > 0) || amountGap > Math.max(1, expected * 0.05))) continue;
       for (const day of recurDaysInMonth(task, y, m)) {
         if (isTaken(task, y, m, day)) continue;
         const dayGap = Math.abs(day - d);
-        if (dayGap > LINK_DAY_TOLERANCE) continue;
-        const score = amountGap / expected + dayGap / 100;
-        if (!best || score < best.score) best = { task, day, score };
+        if (dayGap > (byLabel ? LABEL_DAY_TOLERANCE : LINK_DAY_TOLERANCE)) continue;
+        const score = (byLabel ? 0 : 10) + amountGap / Math.max(expected, 1) + dayGap / 100;
+        if (!best || score < best.score) best = { task, day, score, how: byLabel ? 'label' : 'amount' };
       }
     }
-    if (best) {
-      taken.add(`${best.task.id}|${ym}|${best.day}`);
-      op.recurId  = best.task.id;
-      op.category = best.task.category;
-      links.push({ op, task: best.task });
-    }
+    if (best) link(op, best.task, best.day, best.how);
   }
   return links;
 }
@@ -1173,7 +1208,7 @@ function renderRecurring() {
         <span class="recurring-icon">↺</span>
         <div class="recurring-info">
           <span class="recurring-label">${task.label}</span>
-          <span class="recurring-meta">${fmtDays(task.days)}${task.startDate ? ` · depuis le ${task.startDate.split('-').reverse().join('/')}` : ''}</span>
+          <span class="recurring-meta">${fmtDays(task.days)}${task.startDate ? ` · depuis le ${task.startDate.split('-').reverse().join('/')}` : ''}${task.matchLabels?.length ? ` · banque : ${escHtml(task.matchLabels.join(', '))}` : ''}</span>
         </div>
         <span class="recurring-amount ${task.type}">${task.type === 'depense' ? '−' : '+'}${fmtEUR(task.amount)}</span>
         <button class="btn-icon btn-edit-recur" data-id="${task.id}" title="Modifier">✏</button>
@@ -1218,6 +1253,7 @@ function openRecurringModal(task = null) {
 
   // Nouvelle récurrence : départ aujourd'hui. Ancienne sans date : vide = depuis toujours.
   $('recur-start').value = task ? (task.startDate || '') : todayStr();
+  $('recur-labels').value = (task?.matchLabels || []).join(', ');
   modalRecurDays = task ? [...task.days] : [];
   renderDayPicker();
 
@@ -1260,12 +1296,13 @@ async function saveRecurring() {
   const category = $('recur-category').value;
   const days     = modalRecurDays;
   const startDate = $('recur-start').value || null;
+  const matchLabels = parseMatchLabels($('recur-labels').value);
 
   if (!label) { $('recur-label').focus(); return; }
   if (!amount) { $('recur-amount').focus(); return; }
   if (days.length === 0) { showToast('Sélectionnez au moins un jour du mois'); return; }
 
-  const task = { id, label, amount, type, category, days, startDate };
+  const task = { id, label, amount, type, category, days, startDate, matchLabels };
 
   const snapshot = state.recurring.map(t => ({ ...t }));
   const existing = state.recurring.findIndex(t => t.id === id);
@@ -1623,7 +1660,11 @@ const escHtml = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
 // Opérations cochées, rapprochées des récurrences (recalculé à chaque changement :
 // une ligne décochée ne doit pas « consommer » une occurrence).
 function importSelection() {
-  for (const r of importRows) { delete r.op.recurId; r.op.category = r.cat; }
+  for (const r of importRows) {
+    delete r.op.recurId;
+    r.op.category = r.cat;
+    if (r.recurChoice === undefined) delete r.op._recurChoice; else r.op._recurChoice = r.recurChoice;
+  }
   const ops = importRows.filter(r => r.checked && r.status !== 'dup' && r.status !== 'transfer').map(r => r.op);
   return { ops, links: linkImportToRecurrences(ops) };
 }
@@ -1670,7 +1711,8 @@ function renderImportPreview() {
           <input type="checkbox" data-row="${i}" ${r.checked && !transfer ? 'checked' : ''} ${transfer ? 'disabled' : ''}
             aria-label="Importer ${escHtml(e.label)}">
           <span class="import-date">${e.date}</span>
-          <span class="import-label" title="${escHtml(e.label)}">${e.recurId ? '↺ ' : ''}${escHtml(e.label)}${note}</span>
+          <span class="import-label" title="${escHtml(e.label)}">${escHtml(e.label)}${note}</span>
+          ${transfer || !r.checked ? '<span></span>' : importRecurCell(r, i)}
           <span class="import-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
           <button type="button" class="import-transfer${transfer ? ' active' : ''}" data-transfer="${i}"
             title="${transfer ? 'Pas un virement interne : importer' : 'Virement entre mes comptes : ne jamais importer'}"
@@ -1682,6 +1724,26 @@ function renderImportPreview() {
   preview.scrollTop = scroll;
   const { add, remove } = importRuleChanges();
   $('btn-confirm-import').disabled = !ops.length && !add.length && !remove.length;
+}
+
+// Récurrence d'une ligne : bouton (liée → nom, sinon ↺ discret) ou menu « lier à… »
+function importRecurCell(r, i) {
+  const e = r.op;
+  const task = e.recurId && state.recurring.find(t => t.id === e.recurId);
+  if (r.editRecur) {
+    const ym = e.date.slice(0, 7);
+    const tasks = state.recurring.filter(t => t.type === e.type).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+    const amountFor = t => { const ov = getOverride(t.id, ym); return ov ? ov.amount : t.amount; };
+    return `<select class="import-recur-select" data-recur-select="${i}" aria-label="Lier ${escHtml(e.label)} à une récurrence">
+      <option value="__auto">Automatique</option>
+      <option value="" ${r.recurChoice === '' ? 'selected' : ''}>Aucune récurrence</option>
+      ${tasks.map(t => `<option value="${escHtml(t.id)}" ${e.recurId === t.id ? 'selected' : ''}>${escHtml(t.label)} · ${fmtEUR(amountFor(t))}</option>`).join('')}
+    </select>`;
+  }
+  const how = r.recurChoice !== undefined ? 'choisie' : 'automatique';
+  return task
+    ? `<button type="button" class="import-recur linked" data-recur="${i}" title="Liée à « ${escHtml(task.label)} » (${how}) — changer">↺ ${escHtml(task.label)}</button>`
+    : `<button type="button" class="import-recur" data-recur="${i}" title="Lier à une récurrence">↺</button>`;
 }
 
 // ⇄ : bascule toutes les lignes du même libellé normalisé et mémorise la règle
@@ -1706,15 +1768,52 @@ function onImportPreviewEvent(e) {
     renderImportPreview();
     return;
   }
+  const sel = e.target.closest('select[data-recur-select]');
+  if (sel) {
+    const row = importRows[+sel.dataset.recurSelect];
+    if (e.type === 'change') {
+      if (sel.value === '__auto') delete row.recurChoice; else row.recurChoice = sel.value;
+    }
+    if ((e.type === 'change' || e.type === 'focusout') && row.editRecur) {
+      row.editRecur = false;
+      renderImportPreview();
+    }
+    return;
+  }
+  const recurBtn = e.target.closest('button[data-recur]');
+  if (recurBtn && e.type === 'click') {
+    for (const r of importRows) r.editRecur = false;
+    importRows[+recurBtn.dataset.recur].editRecur = true;
+    renderImportPreview();
+    $('import-preview').querySelector(`select[data-recur-select="${recurBtn.dataset.recur}"]`)?.focus();
+    return;
+  }
   const btn = e.target.closest('button[data-transfer]');
   if (btn && e.type === 'click') toggleImportTransfer(+btn.dataset.transfer);
+}
+
+// « Lier à… » choisi à la main : le libellé est retenu sur la récurrence pour les
+// prochains imports (sauf s'il est déjà couvert par une de ses règles)
+function learnRecurLabels(links) {
+  const changed = new Map();
+  for (const { op, task, how } of links) {
+    if (how !== 'manual') continue;
+    const key = transferKey(op.label);
+    if (!key || recurLabelMatches(task, new Set(labelTokens(op.label)))) continue;
+    task.matchLabels = [...(task.matchLabels || []), key].slice(-20);
+    changed.set(task.id, task);
+  }
+  for (const task of changed.values()) {
+    RDB.save(task).catch(() => showToast(`Libellé non enregistré pour « ${task.label} »`));
+  }
+  return changed.size;
 }
 
 async function confirmImport() {
   if (!importRows) return;
 
   const { ops, links } = importSelection();
-  const newOps = ops.map(({ internal, bankKey, ...op }) => op);
+  const newOps = ops.map(({ internal, bankKey, _recurChoice, ...op }) => op);
   // Opérations bancaires vues dans l'aperçu (importées, écartées ou décochées) : traitées
   const bankKeys = importRows.filter(r => r.bankKey).map(r => r.bankKey);
   const ignored   = importRows.filter(r => r.status === 'dup').length;
@@ -1725,6 +1824,7 @@ async function confirmImport() {
     state.transferRules = [...importRules];
     TransferDB.save(add, remove).catch(() => showToast('Erreur de sauvegarde des virements internes'));
   }
+  learnRecurLabels(links);
 
   state.expenses.push(...newOps);
   closeImportModal();
@@ -2925,6 +3025,7 @@ async function init() {
   $('btn-confirm-import').addEventListener('click', confirmImport);
   $('import-preview').addEventListener('change', onImportPreviewEvent);
   $('import-preview').addEventListener('click', onImportPreviewEvent);
+  $('import-preview').addEventListener('focusout', onImportPreviewEvent);
   $('bank-panel').addEventListener('click', onBankPanelClick);
   $('import-file').addEventListener('change', handleFileSelect);
 

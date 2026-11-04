@@ -963,7 +963,7 @@ body {
 
 .import-list li {
   display: grid;
-  grid-template-columns: auto 82px minmax(0, 1fr) auto auto;
+  grid-template-columns: auto 82px minmax(0, 1fr) auto auto auto;
   gap: 0.5rem;
   padding: 0.4rem 0.7rem;
   font-size: 12px;
@@ -1005,6 +1005,34 @@ body {
 }
 .import-tag.warn { color: var(--accent); }
 .import-list li.is-off .import-label .import-tag { text-decoration: none; display: inline-block; }
+
+.import-recur {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.4rem;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.import-recur:hover,
+.import-recur:focus-visible { border-color: var(--accent); color: var(--accent); }
+.import-recur.linked { color: var(--accent); background: var(--accent-faint); font-style: italic; }
+.import-recur-select {
+  max-width: 180px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
+  color: var(--text);
+}
 
 .import-transfer {
   border: 1px solid var(--border-light);

@@ -47,6 +47,8 @@ Deux modes complémentaires :
      - `maybe` : même type et montant qu'une opération enregistrée à ±3 jours (`MAYBE_DUP_DAYS`), libellé différent (saisie manuelle probable) → décochée, affichée en tête avec l'opération existante
      - `new` : cochée
    - Le rapprochement avec les récurrences est recalculé sur les seules lignes cochées
+   - **Lien manuel** : chaque ligne cochée a un bouton ↺ (nom de la récurrence si liée) → menu « Automatique / Aucune récurrence / <récurrences du même type> » (`importRecurCell`, `row.recurChoice`). Un lien choisi à la main est prioritaire et **apprend** le libellé normalisé sur la récurrence (`learnRecurLabels` → `task.matchLabels`)
+   - **Libellés bancaires d'une récurrence** (`matchLabels`, colonne `recurring_tasks.match_labels` JSONB, champ « Libellé bancaire » de la modale, virgules) : une règle correspond si tous ses mots (`labelTokens`) sont dans le libellé (`recurLabelMatches`). Avec un libellé connu : **montant libre**, date à ±10 jours (`LABEL_DAY_TOLERANCE`) ; prioritaire sur le rapprochement par montant. Toujours dans le **même mois** que l'occurrence (`realizedRecurDays` raisonne par mois) : si le prélèvement tombe toujours début du mois suivant, régler le jour de la récurrence en conséquence
    - **Rapprochement avec les récurrences** (`linkImportToRecurrences`) : une opération importée est liée (`recurId` + catégorie de la récurrence) si même type, montant à ±5 % (min 1 €) du montant attendu ce mois-là (override inclus), date à ±5 jours (`LINK_DAY_TOLERANCE`) d'une occurrence du même mois pas encore saisie ; candidates multiples → la plus proche. L'aperçu liste les liens ; évite le double comptage opération importée + rappel ↺.
 
 3. **Synchro bancaire** (déployé uniquement, Enable Banking en **mode restreint** : gratuit, seuls les comptes liés à l'application dans le panneau Enable Banking sont accessibles — en pratique ceux du propriétaire de l'application)
@@ -189,6 +191,7 @@ type RecurringTask = {
   category: string;
   days: number[];        // ex: [1, 15] = 1er et 15 du mois
   startDate?: string | null; // YYYY-MM-DD, occurrences antérieures ignorées ; null = depuis toujours
+  matchLabels?: string[];    // libellés bancaires normalisés (appris ou saisis) : rapprochement à l'import, montant libre
 };
 
 type Category = {

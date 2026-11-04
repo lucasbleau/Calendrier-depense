@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS recurring_tasks (
   category    TEXT            NOT NULL,
   days        TEXT            NOT NULL,
   start_date  DATE,
+  match_labels JSONB          NOT NULL DEFAULT '[]', -- libellés bancaires normalisés (rapprochement à l'import)
   created_at  TIMESTAMPTZ     DEFAULT NOW(),
   CONSTRAINT fk_recurring_category
     FOREIGN KEY (user_id, category) REFERENCES categories(user_id, id)

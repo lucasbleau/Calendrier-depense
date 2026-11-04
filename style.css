@@ -736,7 +736,14 @@ body {
   max-width: 420px;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+  /* Jamais plus haute que l'écran : le corps défile, en-tête et boutons restent visibles */
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
 }
+.modal-box > .modal-header,
+.modal-box > .modal-footer { flex-shrink: 0; }
+.modal-box > .modal-body { min-height: 0; overflow-y: auto; }
 
 .modal-header {
   display: flex;
@@ -851,7 +858,11 @@ body {
 
 .import-zone input[type="file"] { display: none; }
 
-#import-preview { max-height: 55vh; overflow-y: auto; }
+/* La liste prend la hauteur restante et défile seule ; le reste de la modale ne bouge pas */
+#modal-import .modal-box { max-width: 640px; }
+#modal-import .modal-body > * { flex-shrink: 0; }
+#modal-import #import-preview { flex: 1 1 auto; flex-shrink: 1; min-height: 140px; overflow-y: auto; }
+#import-preview:empty { min-height: 0; }
 
 /* Badge « opérations bancaires à vérifier » sur l'icône Importer */
 #btn-import .nav-pill { position: relative; }

@@ -1179,6 +1179,13 @@ body {
   transition: background 0.1s;
 }
 .panel-recur-item:hover { background: var(--accent-faint); }
+.panel-recur-item.is-realized .op-label { font-style: normal; color: var(--text); }
+.panel-recur-item.is-realized .op-cat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 
 .btn-edit-recur-amount {
   background: none;

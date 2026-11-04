@@ -973,6 +973,11 @@ function renderDayPanel() {
   const items = getDayData(dateStr);
   const { depenses, revenus } = sumByType(items);
   const recurItems = getRecurringForDay(year, month - 1, day);
+  // Opérations liées à une récurrence (saisies via « + » ou rapprochées à l'import) :
+  // affichées comme récurrences réalisées, pas comme dépenses ponctuelles
+  const taskOf  = e => e.recurId && state.recurring.find(t => t.id === e.recurId);
+  const realized = items.filter(taskOf);
+  const plainItems = items.filter(e => !taskOf(e));
 
   // Totaux du jour = opérations saisies + récurrences (même règle que le calendrier)
   const recurDep = recurItems.filter(r => r.type === 'depense').reduce((s, r) => s + r.amount, 0);
@@ -993,7 +998,7 @@ function renderDayPanel() {
     <ul class="operations-list">
   `;
 
-  for (const item of items) {
+  for (const item of plainItems) {
     const cat = getCat(item.category);
     html += `
       <li class="operation-item">
@@ -1015,9 +1020,28 @@ function renderDayPanel() {
 
   const ym = dateStr.slice(0, 7);
 
-  if (recurItems.length > 0) {
+  if (recurItems.length > 0 || realized.length > 0) {
     html += `<div class="panel-recurring">
       <div class="panel-recurring-title">↺ Récurrences du jour</div>`;
+    for (const item of realized) {
+      const task = taskOf(item);
+      const cat  = getCat(item.category);
+      const diff = item.amount !== task.amount;
+      html += `
+        <div class="panel-recur-item is-realized">
+          <div class="op-line1">
+            <span class="op-dot" style="background:${cat.color}"></span>
+            <span class="op-label" title="${escHtml(item.label)}">✓ ${escHtml(task.label)}</span>
+          </div>
+          <div class="op-line2">
+            <span class="op-cat" title="${escHtml(item.label)}">${escHtml(cat.label)} · réalisée${item.label !== task.label ? ` · ${escHtml(item.label)}` : ''}</span>
+            <span class="op-amount ${item.type}" ${diff ? `title="Prévu : ${fmtEUR(task.amount)}"` : ''}>${item.type === 'depense' ? '-' : '+'}${fmtEUR(item.amount)}</span>
+            <button class="op-edit" data-id="${item.id}" aria-label="Modifier ${escHtml(item.label)}">&#9998;</button>
+            <button class="op-delete" data-id="${item.id}" aria-label="Supprimer ${escHtml(item.label)}">&#10005;</button>
+          </div>
+        </div>
+      `;
+    }
     for (const r of recurItems) {
       const cat = getCat(r.category);
       const baseTask = state.recurring.find(t => t.id === r.id);

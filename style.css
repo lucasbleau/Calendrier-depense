@@ -2229,12 +2229,13 @@ body {
 .stats-charts {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
 }
-.stats-charts .chart-card { margin-bottom: 0; display: flex; flex-direction: column; min-height: 0; }
+/* Hauteur du contenu ; le classement ne rétrécit (et défile) que s'il dépasse l'écran */
+.stats-charts .chart-card { margin-bottom: 0; display: flex; flex-direction: column; flex: 0 0 auto; }
+.stats-charts .chart-card:last-child { flex: 0 1 auto; min-height: 0; }
 .stats-charts .cat-rank { flex: 1; min-height: 0; overflow-y: auto; padding-right: 0.25rem; }
 
 .chart-card {

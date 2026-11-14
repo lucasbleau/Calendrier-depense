@@ -2773,7 +2773,7 @@ function svgGroupedBars(dep, rev) {
   const innerW = W - padX * 2, innerH = H - padT;
   const max = Math.max(1, ...dep, ...rev);
   const groupW = innerW / 12;
-  const barW = Math.max(4, groupW / 2 - 3);
+  const barW = Math.max(4, groupW * 0.27); // ~45 % du créneau vide entre deux mois
   const baseY = padT + innerH;
   let s = `<line class="chart-base" x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}" vector-effect="non-scaling-stroke"/>`;
   let months = '';

@@ -70,7 +70,7 @@ Simplifiée le 24/10/2026 (donut et courbe du solde retirés).
 - Navigation par année (`state.currentYear`). **Seuls les mois écoulés + le mois en cours sont comptés** (`statsLastMonth`) : les récurrences des mois à venir ne gonflent plus les totaux.
 - 3 KPI pleine largeur en haut : Dépenses (+ moyenne mensuelle sur les mois actifs), Revenus, Solde (+ période couverte)
 - En dessous, empilés pleine largeur (`.stats-charts`) :
-- Bar chart 12 mois dépenses/revenus (mois à venir vides)
+- Bar chart 12 mois dépenses/revenus (mois à venir vides) ; au-dessus de chaque mois, le solde revenus − dépenses en petit (vert/rouge, `fmtSignedShort`), en HTML superposé au SVG étiré
 - Puis classement de **toutes** les catégories avec montant et %, **regroupé par catégorie de premier niveau** (un parent agrège ses sous-catégories) ; chaque parent est **dépliable** (`state.statsExpanded`) pour voir ses sous-catégories + la part « directe » du parent (`statsRankHtml`)
 
 ### Vue Récurrences

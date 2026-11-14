@@ -2270,7 +2270,31 @@ body {
 
 /* SVG charts */
 .chart-fill { display: flex; flex-direction: column; height: 170px; }
+.chart-plot { position: relative; flex: 1; min-height: 0; display: flex; }
 .chart-svg { width: 100%; flex: 1; min-height: 0; display: block; }
+/* Écarts mensuels en HTML par-dessus le SVG étiré (le texte SVG serait déformé) */
+.chart-diffs {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  padding: 0 calc(100% * 6 / 720);
+  pointer-events: none;
+}
+.chart-diff-cell { position: relative; }
+.chart-diff {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -3px);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-3);
+  pointer-events: auto;
+}
+.chart-diff.is-pos { color: var(--revenu); }
+.chart-diff.is-neg { color: var(--depense); }
 .bar-dep { fill: var(--depense); }
 .bar-rev { fill: var(--revenu); }
 .chart-base { stroke: var(--border); stroke-width: 1; }
@@ -2323,6 +2347,7 @@ body {
 
 @media (max-width: 700px) {
   .stats-kpis { grid-template-columns: 1fr; }
+  .chart-diff { font-size: 8px; }
   #view-stats { display: block; }
   #stats-body, .stats-charts { display: block; }
   .stats-charts .chart-card + .chart-card { margin-top: 1rem; }

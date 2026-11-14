@@ -246,6 +246,13 @@ function fmtCompact(n) {
   return n.toFixed(2).replace('.', ',') + '€';
 }
 
+// Écart signé court (« +150€ », « −1,2k€ ») : étiquettes du graphique mensuel
+function fmtSignedShort(n) {
+  const r = Math.round(n), a = Math.abs(r);
+  const sign = r > 0 ? '+' : r < 0 ? '−' : '';
+  return sign + (a >= 1000 ? (a / 1000).toFixed(1).replace('.', ',') + 'k' : a) + '€';
+}
+
 function parseAmount(str) {
   if (typeof str === 'number') return Math.abs(str);
   let clean = String(str).replace(/[\s€+]/g, '');
@@ -2769,14 +2776,14 @@ function yearCategoryTotals(year) {
 function svgGroupedBars(dep, rev) {
   // Étiré en hauteur (preserveAspectRatio="none") pour remplir la carte : les
   // mois sont donc en HTML sous le SVG, sinon le texte serait déformé.
-  const W = 720, H = 220, padX = 6, padT = 12;
+  const W = 720, H = 220, padX = 6, padT = 34; // padT : place pour l'écart au-dessus de la plus haute barre
   const innerW = W - padX * 2, innerH = H - padT;
   const max = Math.max(1, ...dep, ...rev);
   const groupW = innerW / 12;
   const barW = Math.max(4, groupW * 0.27); // ~45 % du créneau vide entre deux mois
   const baseY = padT + innerH;
   let s = `<line class="chart-base" x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}" vector-effect="non-scaling-stroke"/>`;
-  let months = '';
+  let months = '', diffs = '';
   for (let m = 0; m < 12; m++) {
     const gx = padX + m * groupW;
     const dh = (dep[m] / max) * innerH;
@@ -2786,9 +2793,21 @@ function svgGroupedBars(dep, rev) {
     if (dep[m] > 0) s += `<rect class="bar-dep" x="${dx.toFixed(1)}" y="${(baseY - dh).toFixed(1)}" width="${barW.toFixed(1)}" height="${dh.toFixed(1)}" rx="2"><title>${MONTHS_SHORT[m]} — dépenses ${fmtEUR(dep[m])}</title></rect>`;
     if (rev[m] > 0) s += `<rect class="bar-rev" x="${rx.toFixed(1)}" y="${(baseY - rh).toFixed(1)}" width="${barW.toFixed(1)}" height="${rh.toFixed(1)}" rx="2"><title>${MONTHS_SHORT[m]} — revenus ${fmtEUR(rev[m])}</title></rect>`;
     months += `<span>${MONTHS_SHORT[m]}</span>`;
+    // Solde du mois (revenus − dépenses), posé juste au-dessus de la plus haute des deux barres
+    if (dep[m] > 0 || rev[m] > 0) {
+      const diff   = rev[m] - dep[m];
+      const bottom = (Math.max(dh, rh) / H * 100).toFixed(2);
+      const cls    = diff > 0 ? 'is-pos' : diff < 0 ? 'is-neg' : '';
+      diffs += `<span class="chart-diff-cell"><span class="chart-diff ${cls}" style="bottom:${bottom}%" title="${MONTHS_SHORT[m]} — solde ${fmtEUR(diff)}">${fmtSignedShort(diff)}</span></span>`;
+    } else {
+      diffs += `<span class="chart-diff-cell"></span>`;
+    }
   }
   return `<div class="chart-fill">
-      <svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Dépenses et revenus par mois">${s}</svg>
+      <div class="chart-plot">
+        <svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Dépenses et revenus par mois">${s}</svg>
+        <div class="chart-diffs">${diffs}</div>
+      </div>
       <div class="chart-axis">${months}</div>
     </div>`;
 }

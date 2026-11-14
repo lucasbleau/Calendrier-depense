@@ -24,6 +24,7 @@ Visualiser, saisir et analyser les dépenses et revenus quotidiens via une inter
 - Code couleur d'intensité : la cellule s'assombrit proportionnellement au montant dépensé (max du mois = référence)
 - Mise en évidence du jour courant
 - Clic sur un jour → panneau détail : liste des opérations + section récurrences du jour + bouton ajouter/supprimer
+- **Exporter** (menu dans l'en-tête, mois affiché) : **CSV** (`exportMonthCSV` : `;`, virgule décimale, BOM pour Excel ; colonnes Date, Libellé, Catégorie, Catégorie parente, Type, Montant signé, Statut `saisie` / `récurrence saisie` / `récurrence prévue`) et **récapitulatif PDF** (`exportMonthPDF` : KPI, dépenses par catégorie de premier niveau avec objectif, liste des opérations ; HTML imprimable dans un iframe caché → boîte d'impression du navigateur « Enregistrer en PDF »). Les deux incluent les récurrences pas encore saisies (`monthExportRows`), comme les totaux de l'appli.
 - Indicateur mensuel en-tête (bouton → ouvre Objectifs) : « Reste X € » ou « Dépassé de X € » = `monthPlannedTotal − monthGoalReal`, mêmes chiffres que la vue Objectifs (archivées exclues), coloré par `goalClass`. Masqué si aucun objectif ce mois.
 
 ### Saisie des dépenses
@@ -70,8 +71,8 @@ Simplifiée le 24/10/2026 (donut et courbe du solde retirés).
 - Navigation par année (`state.currentYear`). **Seuls les mois écoulés + le mois en cours sont comptés** (`statsLastMonth`) : les récurrences des mois à venir ne gonflent plus les totaux.
 - 3 KPI pleine largeur en haut : Dépenses (+ moyenne mensuelle sur les mois actifs), Revenus, Solde (+ période couverte)
 - En dessous, empilés pleine largeur (`.stats-charts`) :
-- Bar chart 12 mois dépenses/revenus (mois à venir vides) ; au-dessus de chaque mois, le solde revenus − dépenses en petit (vert/rouge, `fmtSignedShort`), en HTML superposé au SVG étiré
-- Puis classement de **toutes** les catégories avec montant et %, **regroupé par catégorie de premier niveau** (un parent agrège ses sous-catégories) ; chaque parent est **dépliable** (`state.statsExpanded`) pour voir ses sous-catégories + la part « directe » du parent (`statsRankHtml`)
+- Bar chart 12 mois dépenses/revenus (mois à venir vides), hauteur fixe ; **clic sur une colonne** = le classement ci-dessous détaille ce mois (`state.statsMonth`, re-clic ou « Toute l'année ✕ » pour revenir ; remis à zéro au changement d'année) ; au-dessus de chaque mois, le solde revenus − dépenses en petit (vert/rouge, `fmtSignedShort`), en HTML superposé au SVG étiré
+- Puis classement de **toutes** les catégories avec montant et %, **regroupé par catégorie de premier niveau** (un parent agrège ses sous-catégories) ; chaque parent est **dépliable** (`state.statsExpanded`) pour voir ses sous-catégories + la part « directe » du parent (`statsRankHtml`). Chaque ligne a une **mini-courbe 12 mois** (`svgSparkline`, point sur le mois détaillé ou le dernier mois ; masquée sur mobile), calculée par `monthCategoryTotals`. Le classement ne prend que la hauteur de son contenu et défile seul s'il dépasse l'écran (pas de défilement de page sur ordinateur)
 
 ### Vue Récurrences
 
@@ -81,6 +82,7 @@ Simplifiée le 24/10/2026 (donut et courbe du solde retirés).
 - Les récurrences apparaissent dans le calendrier comme rappels (↺ montant)
 - Depuis le panneau jour : bouton `+` pour créer une opération pré-remplie depuis la récurrence
 - **Règle anti-double-comptage** : l'opération créée via `+` garde l'id de sa récurrence (`recurId`, colonne `recur_id` en DB). Une occurrence « réalisée » (opération liée dans le mois, affectée à l'occurrence la plus proche) disparaît des rappels ↺ et des totaux « réels » (`recurRemaining`, `recurMonthTotal`, `getRecurringForDay`). Dans le panneau du jour, elle s'affiche sous « Récurrences du jour » avec le libellé de la récurrence (« ✓ … ») ; la modale de modification montre le champ « Récurrence liée » pour la détacher (`PUT /api/expenses` met à jour `recur_id`, vide = détachée). Le « prévu » des Objectifs (`recurExpected`) compte en revanche **toutes** les occurrences — le dénominateur ne bouge pas quand on saisit.
+- **Rattacher les opérations passées** (bouton en tête de la vue, `openRelinkModal`) : applique `linkImportToRecurrences` à des copies des opérations enregistrées sans `recurId` et liste les propositions à cocher. Une proposition qui **changerait la catégorie** est décochée (faux rapprochement par montant typique). Validation → `recurId` + catégorie de la récurrence, `PUT` par opération, rollback individuel en cas d'erreur.
 - **Affichage groupé** par catégorie, trié par montant décroissant dans chaque groupe
 - **Bandeau résumé** en haut à droite : total dépenses/mois, total revenus/mois, solde net
 - **Montant modifié pour un mois** (depuis le panneau jour, `setRecurOverride`) : stocké **en base** (table `recurring_overrides`, `GET /api/recurring?overrides=1`, `POST /api/recurring {action:'overrides', set, remove}`), mise à jour optimiste avec rollback. Anciennement en `localStorage` par appareil : `migrateLegacyOverrides` reprend une fois les valeurs locales (sans écraser la base) puis supprime la clé. Chargement non bloquant (repli sur le cache du compte).
@@ -315,12 +317,11 @@ Browser → /api/plan         → Postgres (plan_* WHERE user_id) — plus appel
 ## Roadmap / évolutions possibles
 
 - **Vue heatmap annuelle** style GitHub contributions
-- **Export** : CSV, Excel, PDF mensuel récapitulatif
+- **Export annuel** (l'export mensuel CSV / PDF existe)
 - **Dépenses prévisionnelles** : distinction dépenses passées / planifiées
 - **Filtres** : par catégorie, par plage de montants, par mots-clés
 - **Multi-comptes** : ventiler entre compte courant, PEA, etc.
 - **Règles de catégorisation** : mappings mot-clé → catégorie personnalisables (la catégorisation apprend déjà de l'historique)
-- **Rapprochement rétroactif** : lier aux récurrences les opérations importées avant le rapprochement automatique (elles restent comptées deux fois)
 - **PWA** : installation mobile, fonctionnement offline
 - **Tests** : Vitest pour la logique de parsing CSV et les calculs d'agrégation
 

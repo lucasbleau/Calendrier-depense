@@ -102,6 +102,19 @@
         <select id="select-year" aria-label="Choisir l'année"></select>
       </div>
       <div class="legend-wrap">
+        <button class="btn-legend" id="btn-export" type="button" aria-expanded="false" aria-controls="export-menu" title="Exporter le mois affiché">Exporter</button>
+        <div id="export-menu" class="calendar-legend export-menu hidden" role="menu" aria-label="Exporter le mois">
+          <button type="button" role="menuitem" class="export-item" data-export="csv">
+            <span class="export-item-title">CSV du mois</span>
+            <span class="export-item-sub">Opérations + récurrences non saisies, pour Excel</span>
+          </button>
+          <button type="button" role="menuitem" class="export-item" data-export="pdf">
+            <span class="export-item-title">Récapitulatif PDF</span>
+            <span class="export-item-sub">Totaux, catégories et opérations — via « Enregistrer en PDF »</span>
+          </button>
+        </div>
+      </div>
+      <div class="legend-wrap">
         <button class="btn-legend" id="btn-legend" type="button" aria-expanded="false" aria-controls="calendar-legend" title="Légende des couleurs">Légende</button>
         <div id="calendar-legend" class="calendar-legend hidden" role="region" aria-label="Légende des couleurs">
           <div class="legend-section-title">Objectifs (réel / plafond)</div>
@@ -137,7 +150,10 @@
         <h2 class="recurring-title">Récurrences mensuelles</h2>
         <p class="recurring-subtitle">Dépenses et revenus qui se répètent chaque mois. Ils apparaissent dans le calendrier comme rappels (↺) mais ne sont pas comptés dans les statistiques tant qu'ils ne sont pas saisis manuellement.</p>
       </div>
-      <button class="btn-primary" id="btn-add-recurring">+ Nouvelle récurrence</button>
+      <div class="recurring-actions">
+        <button class="btn-secondary" id="btn-relink" title="Lier aux récurrences les opérations déjà enregistrées qui leur correspondent (évite le double comptage)">↺ Rattacher les opérations passées</button>
+        <button class="btn-primary" id="btn-add-recurring">+ Nouvelle récurrence</button>
+      </div>
     </div>
 
     <div id="recurring-summary" class="hidden"></div>
@@ -295,6 +311,21 @@
           <input type="text" id="search-max" placeholder="Max €" inputmode="decimal" class="search-amount" />
         </div>
         <div id="search-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal : Rattachement rétroactif aux récurrences ─────────────── -->
+  <div id="modal-relink" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-relink-title">
+    <div class="modal-box modal-box--wide">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-relink-title">Rattacher les opérations passées</h2>
+        <button class="btn-icon" id="modal-relink-close" aria-label="Fermer">&#10005;</button>
+      </div>
+      <div class="modal-body" id="relink-body"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-relink-cancel">Annuler</button>
+        <button class="btn-primary" id="btn-relink-ok">Rattacher</button>
       </div>
     </div>
   </div>

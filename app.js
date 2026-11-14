@@ -785,6 +785,7 @@ const state = {
   goalsExpanded: new Set(), // lignes dépliées dans la vue Objectifs
   goalsShowOthers: false,   // section « Autres catégories » dépliée (vue Objectifs)
   statsExpanded: new Set(), // ids des catégories parent dépliées (vue Stats)
+  statsMonth:    null,      // mois détaillé dans le classement des Stats (0-11), null = toute l'année
   catArchivedOpen: false,   // section « Archivées » dépliée (vue Catégories)
 };
 
@@ -1290,6 +1291,94 @@ function openRecurringModal(task = null) {
 
   $('modal-recurring').classList.remove('hidden');
   $('recur-label').focus();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rattachement rétroactif : opérations enregistrées sans lien → récurrences
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Même règle qu'à l'import (linkImportToRecurrences), appliquée à des copies des
+// opérations non liées. Une proposition qui changerait la catégorie est décochée :
+// c'est le cas typique d'un faux rapprochement par montant.
+let relinkRows = [];
+
+function refreshViews() {
+  renderCalendar();
+  if (state.view === 'recurring') renderRecurring();
+  if (state.view === 'goals') renderGoals();
+  if (state.view === 'stats') renderStats();
+}
+
+function openRelinkModal() {
+  const copies = state.expenses.filter(e => !e.recurId).map(e => ({ ...e }));
+  const byId = Object.fromEntries(state.expenses.map(e => [e.id, e]));
+  relinkRows = linkImportToRecurrences(copies)
+    .map(({ op, task, how }) => {
+      const orig = byId[op.id];
+      return { id: op.id, orig, task, how, catChange: orig.category !== task.category, checked: orig.category === task.category };
+    })
+    .sort((a, b) => b.orig.date.localeCompare(a.orig.date));
+  renderRelink();
+  $('modal-relink').classList.remove('hidden');
+}
+
+function closeRelinkModal() {
+  relinkRows = [];
+  $('modal-relink').classList.add('hidden');
+}
+
+function renderRelink() {
+  const body = $('relink-body');
+  const n = relinkRows.filter(r => r.checked).length;
+  $('btn-relink-ok').disabled = n === 0;
+  $('btn-relink-ok').textContent = n ? `Rattacher ${n} opération(s)` : 'Rattacher';
+  if (!relinkRows.length) {
+    body.innerHTML = '<p class="import-info">Aucune opération à rattacher : tout est déjà lié ou rien ne correspond à une récurrence.</p>';
+    return;
+  }
+  const catChanges = relinkRows.filter(r => r.catChange).length;
+  body.innerHTML = `
+    <p class="import-info">${relinkRows.length} opération(s) correspondent à une récurrence non saisie du même mois.</p>
+    <p class="import-hint-line">Une fois rattachée, l'opération remplace le rappel ↺ : elle n'est plus comptée deux fois.${catChanges
+      ? ` <span class="import-warn">${catChanges} changerai(en)t de catégorie : décochée(s), à vérifier.</span>` : ''}</p>
+    <ul class="import-list relink-list">
+      ${relinkRows.map((r, i) => {
+        const e = r.orig;
+        const how = r.how === 'label' ? 'libellé bancaire connu' : 'montant et date proches';
+        const cat = r.catChange ? ` · ${escHtml(getCat(e.category).label)} → ${escHtml(getCat(r.task.category).label)}` : '';
+        return `
+        <li class="${r.checked ? '' : 'is-off'}">
+          <input type="checkbox" data-relink="${i}" ${r.checked ? 'checked' : ''} aria-label="Rattacher ${escHtml(e.label)}">
+          <span class="import-date">${e.date}</span>
+          <span class="import-label" title="${escHtml(e.label)}">${escHtml(e.label)}</span>
+          <span class="import-tag${r.catChange ? ' warn' : ''}" title="Rapproché par ${how}">↺ ${escHtml(r.task.label)}${cat}</span>
+          <span class="import-amount ${e.type}">${e.type === 'depense' ? '-' : '+'}${fmtEUR(e.amount)}</span>
+          <span></span>
+        </li>`;
+      }).join('')}
+    </ul>`;
+}
+
+async function confirmRelink() {
+  const chosen = relinkRows.filter(r => r.checked);
+  if (!chosen.length) return;
+  const prev = chosen.map(r => ({ ...r.orig }));
+  for (const r of chosen) {
+    const idx = state.expenses.findIndex(e => e.id === r.id);
+    if (idx !== -1) state.expenses[idx] = { ...state.expenses[idx], recurId: r.task.id, category: r.task.category };
+  }
+  closeRelinkModal();
+  refreshViews();
+  const results = await Promise.allSettled(chosen.map(r => DB.update(state.expenses.find(e => e.id === r.id))));
+  const failed = results.map((res, i) => res.status === 'rejected' ? prev[i] : null).filter(Boolean);
+  for (const p of failed) {
+    const idx = state.expenses.findIndex(e => e.id === p.id);
+    if (idx !== -1) state.expenses[idx] = p;
+  }
+  if (failed.length) refreshViews();
+  showToast(failed.length
+    ? `${chosen.length - failed.length} rattachée(s), ${failed.length} en erreur`
+    : `↺ ${chosen.length} opération(s) rattachée(s) à leur récurrence`);
 }
 
 function closeRecurringModal() {
@@ -2734,6 +2823,145 @@ function renderSearchResults() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Export du mois affiché (CSV, récapitulatif imprimable / PDF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Lignes du mois : opérations saisies + occurrences de récurrences pas encore
+// saisies (comptées dans les totaux de l'appli, donc présentes dans l'export).
+function monthExportRows(year, month) {
+  const ym = ymKey(year, month);
+  const rows = getMonthData(year, month).map(e => ({
+    date: e.date, label: e.label, amount: e.amount, type: e.type, category: e.category,
+    status: e.recurId ? 'récurrence saisie' : 'saisie',
+  }));
+  for (const t of state.recurring) {
+    const ov  = getOverride(t.id, ym);
+    const amt = ov ? ov.amount : t.amount;
+    if (!(amt > 0)) continue;
+    const realized = realizedRecurDays(t, year, month);
+    for (const d of recurDaysInMonth(t, year, month)) {
+      if (!realized.has(d)) rows.push({ date: dateKey(year, month, d), label: t.label, amount: amt, type: t.type, category: t.category, status: 'récurrence prévue' });
+    }
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label));
+}
+
+function downloadFile(name, content, mime) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// CSV « à la française » (séparateur ;, virgule décimale, BOM) : s'ouvre tel quel dans Excel
+function exportMonthCSV(year, month) {
+  const rows = monthExportRows(year, month);
+  if (!rows.length) { showToast('Aucune opération ce mois-ci'); return; }
+  const cell = v => /[";\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+  const lines = [['Date', 'Libellé', 'Catégorie', 'Catégorie parente', 'Type', 'Montant', 'Statut'].join(';')];
+  for (const r of rows) {
+    const cat = getCat(r.category);
+    const signed = (r.type === 'depense' ? -r.amount : r.amount).toFixed(2).replace('.', ',');
+    lines.push([r.date, r.label, cat.label, cat.parent ? getCat(cat.parent).label : '', r.type === 'depense' ? 'Dépense' : 'Revenu', signed, r.status].map(cell).join(';'));
+  }
+  downloadFile(`depenses-${ymKey(year, month)}.csv`, '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+  showToast(`CSV de ${MONTHS[month].toLowerCase()} téléchargé`);
+}
+
+// Récapitulatif imprimable dans un iframe caché → boîte d'impression du navigateur
+// (« Enregistrer au format PDF »). Pas de nouvel onglet : rien à bloquer.
+function exportMonthPDF(year, month) {
+  const rows = monthExportRows(year, month);
+  if (!rows.length) { showToast('Aucune opération ce mois-ci'); return; }
+  const { spent, earned } = monthRealTotals(year, month);
+  const solde = earned - spent;
+  const planned = monthPlannedTotal(year, month);
+
+  const byTop = {};
+  for (const [id, v] of Object.entries(monthCategoryTotals(year, month))) {
+    const top = getCat(id).parent || id;
+    byTop[top] = (byTop[top] || 0) + v;
+  }
+  const cats = Object.entries(byTop).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const catRows = cats.map(([id, v]) => {
+    const c = getCat(id);
+    const goal = c.archived ? 0 : topGoalForMonth(id, year, month) || 0;
+    return `<tr><td><span class="dot" style="background:${c.color}"></span>${escHtml(c.label)}</td>
+      <td class="num">${fmtEUR(v)}</td><td class="num muted">${goal ? fmtEUR(goal) : '—'}</td>
+      <td class="num muted">${spent ? Math.round(v / spent * 100) : 0} %</td></tr>`;
+  }).join('');
+  const opRows = rows.map(r => {
+    const c = getCat(r.category);
+    const planned = r.status === 'récurrence prévue';
+    return `<tr class="${planned ? 'planned' : ''}"><td class="mono">${r.date.slice(8, 10)}/${r.date.slice(5, 7)}</td>
+      <td>${planned ? '↺ ' : ''}${escHtml(r.label)}</td><td class="muted">${escHtml(c.label)}</td>
+      <td class="num ${r.type}">${r.type === 'depense' ? '−' : '+'}${fmtEUR(r.amount)}</td></tr>`;
+  }).join('');
+
+  const title = `${MONTHS[month]} ${year}`;
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Récapitulatif ${title}</title>
+<style>
+  @page { margin: 16mm 14mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 11px/1.45 Inter, system-ui, sans-serif; color: #2b2622; }
+  h1 { font: 600 22px/1.2 Fraunces, Georgia, serif; margin-bottom: 2px; }
+  h2 { font: 600 13px/1.2 Fraunces, Georgia, serif; margin: 18px 0 6px; }
+  .sub { color: #8a7f74; margin-bottom: 14px; }
+  .kpis { display: flex; gap: 10px; }
+  .kpi { flex: 1; border: 1px solid #e3dbd1; border-radius: 8px; padding: 8px 10px; }
+  .kpi span { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #8a7f74; }
+  .kpi b { font: 500 15px/1.3 'JetBrains Mono', ui-monospace, monospace; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #8a7f74; font-weight: 600; border-bottom: 1px solid #d8cfc4; padding: 4px 6px; }
+  td { padding: 3px 6px; border-bottom: 1px solid #efe9e2; vertical-align: top; }
+  tr { break-inside: avoid; }
+  .num { text-align: right; font-family: 'JetBrains Mono', ui-monospace, monospace; white-space: nowrap; }
+  th.num { font-family: inherit; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #8a7f74; white-space: nowrap; }
+  .muted { color: #8a7f74; }
+  .depense { color: #C0533E; } .revenu { color: #3E8268; }
+  .planned td { font-style: italic; color: #8a7f74; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .note { margin-top: 10px; font-size: 9px; color: #8a7f74; }
+</style></head><body>
+  <h1>Récapitulatif · ${title}</h1>
+  <p class="sub">Édité le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+  <div class="kpis">
+    <div class="kpi"><span>Dépenses</span><b class="depense">${fmtEUR(spent)}</b></div>
+    <div class="kpi"><span>Revenus</span><b class="revenu">${fmtEUR(earned)}</b></div>
+    <div class="kpi"><span>Solde</span><b class="${solde >= 0 ? 'revenu' : 'depense'}">${solde >= 0 ? '+' : ''}${fmtEUR(solde)}</b></div>
+    ${planned > 0 ? `<div class="kpi"><span>Objectifs du mois</span><b>${fmtEUR(planned)}</b></div>` : ''}
+  </div>
+  ${cats.length ? `<h2>Dépenses par catégorie</h2>
+  <table><thead><tr><th>Catégorie</th><th class="num">Réel</th><th class="num">Objectif</th><th class="num">Part</th></tr></thead><tbody>${catRows}</tbody></table>` : ''}
+  <h2>Opérations</h2>
+  <table><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th class="num">Montant</th></tr></thead><tbody>${opRows}</tbody></table>
+  <p class="note">↺ en italique : récurrence prévue, pas encore saisie — comptée dans les totaux.</p>
+</body></html>`;
+
+  const frame = Object.assign(document.createElement('iframe'), { title: 'Impression du récapitulatif' });
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  frame.onload = () => {
+    const win = frame.contentWindow;
+    win.onafterprint = () => setTimeout(() => frame.remove(), 0);
+    win.focus();
+    win.print();
+    setTimeout(() => frame.remove(), 60000);
+  };
+  frame.srcdoc = html;
+  document.body.appendChild(frame);
+}
+
+function toggleExportMenu(open) {
+  const menu = $('export-menu');
+  const show = open ?? menu.classList.contains('hidden');
+  menu.classList.toggle('hidden', !show);
+  $('btn-export').setAttribute('aria-expanded', String(show));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Vue Statistiques (graphes SVG sur-mesure)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2755,25 +2983,41 @@ function yearMonthlyTotals(year) {
   return { dep, rev };
 }
 
-// Totaux de dépenses par catégorie pour une année (saisies + récurrences), comme la vue Objectifs
-function yearCategoryTotals(year) {
+// Totaux de dépenses par catégorie pour un mois (saisies + récurrences restantes), comme la vue Objectifs
+function monthCategoryTotals(year, month) {
   const map = {};
-  for (let m = 0; m <= statsLastMonth(year); m++) {
-    for (const e of getMonthData(year, m)) {
-      if (e.type !== 'depense') continue;
-      map[e.category] = (map[e.category] || 0) + e.amount;
-    }
-    for (const cat of CATEGORIES) {
-      if (cat.id === INCOME_CATEGORY) continue;
-      const r = recurRemaining(cat.id, year, m);
-      if (r > 0) map[cat.id] = (map[cat.id] || 0) + r;
-    }
+  for (const e of getMonthData(year, month)) {
+    if (e.type !== 'depense') continue;
+    map[e.category] = (map[e.category] || 0) + e.amount;
+  }
+  for (const cat of CATEGORIES) {
+    if (cat.id === INCOME_CATEGORY) continue;
+    const r = recurRemaining(cat.id, year, month);
+    if (r > 0) map[cat.id] = (map[cat.id] || 0) + r;
   }
   return map;
 }
 
+// Mini-courbe 12 mois d'une catégorie (classement des Stats). Taille fixe, non
+// étirée : les points restent ronds. Mois à venir non tracés.
+function svgSparkline(values, color, lastM, mark) {
+  const W = 72, H = 18, pad = 2.5;
+  const max = Math.max(...values.slice(0, lastM + 1), 0);
+  if (lastM < 0 || max <= 0) return '<span class="cat-rank-spark"></span>';
+  const x = i => pad + i / 11 * (W - pad * 2);
+  const y = v => H - pad - v / max * (H - pad * 2);
+  const pts = values.slice(0, lastM + 1).map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const mi = mark !== null && mark <= lastM ? mark : lastM;
+  const tip = values.slice(0, lastM + 1).map((v, i) => `${MONTHS_SHORT[i]} ${fmtEUR(v)}`).join(' · ');
+  return `<svg class="cat-rank-spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">
+      <title>${tip}</title>
+      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${x(mi).toFixed(1)}" cy="${y(values[mi]).toFixed(1)}" r="2.2" fill="${color}"/>
+    </svg>`;
+}
+
 // Barres groupées dépenses/revenus sur 12 mois
-function svgGroupedBars(dep, rev) {
+function svgGroupedBars(dep, rev, selected = null) {
   // Étiré en hauteur (preserveAspectRatio="none") pour remplir la carte : les
   // mois sont donc en HTML sous le SVG, sinon le texte serait déformé.
   const W = 720, H = 220, padX = 6, padT = 34; // padT : place pour l'écart au-dessus de la plus haute barre
@@ -2798,9 +3042,11 @@ function svgGroupedBars(dep, rev) {
       const diff   = rev[m] - dep[m];
       const bottom = (Math.max(dh, rh) / H * 100).toFixed(2);
       const cls    = diff > 0 ? 'is-pos' : diff < 0 ? 'is-neg' : '';
-      diffs += `<span class="chart-diff-cell"><span class="chart-diff ${cls}" style="bottom:${bottom}%" title="${MONTHS_SHORT[m]} — solde ${fmtEUR(diff)}">${fmtSignedShort(diff)}</span></span>`;
+      const sel    = selected === m;
+      const aria   = sel ? "Revenir à toute l'année" : `Détailler ${MONTHS[m].toLowerCase()}`;
+      diffs += `<button type="button" class="chart-diff-cell${sel ? ' is-selected' : ''}" data-stats-month="${m}" aria-pressed="${sel}" aria-label="${aria}"><span class="chart-diff ${cls}" style="bottom:${bottom}%" title="${MONTHS_SHORT[m]} — solde ${fmtEUR(diff)}">${fmtSignedShort(diff)}</span></button>`;
     } else {
-      diffs += `<span class="chart-diff-cell"></span>`;
+      diffs += `<span class="chart-diff-cell is-empty"></span>`;
     }
   }
   return `<div class="chart-fill">
@@ -2823,8 +3069,28 @@ function renderStats() {
   const avgDep = totalDep / activeMonths;
 
   // Totaux par catégorie, regroupés par catégorie de premier niveau (un parent
-  // agrège ses sous-catégories + ses dépenses directes).
-  const catMap = yearCategoryTotals(year);
+  // agrège ses sous-catégories + ses dépenses directes). Mois choisi en cliquant
+  // une colonne du graphique (state.statsMonth), sinon toute l'année.
+  const lastM = statsLastMonth(year);
+  if (state.statsMonth !== null && (state.statsMonth > lastM || !(dep[state.statsMonth] > 0 || rev[state.statsMonth] > 0))) state.statsMonth = null;
+  const selM = state.statsMonth;
+  const monthMaps = Array.from({ length: 12 }, (_, m) => m <= lastM ? monthCategoryTotals(year, m) : {});
+  const catMap = {};
+  monthMaps.forEach((mm, m) => {
+    if (selM !== null && m !== selM) return;
+    for (const [id, v] of Object.entries(mm)) catMap[id] = (catMap[id] || 0) + v;
+  });
+  const rankTotal = Object.values(catMap).reduce((a, b) => a + b, 0);
+  const topOf = id => getCat(id).parent || id;
+  // Série 12 mois d'une ligne du classement : groupe = lui + sous-catégories,
+  // sous-catégorie = elle seule, « (direct) » = dépenses propres du parent
+  const seriesFor = (id, kind) => monthMaps.map(mm => {
+    if (kind !== 'group') return mm[id] || 0;
+    let t = 0;
+    for (const [k, v] of Object.entries(mm)) if (topOf(k) === id) t += v;
+    return t;
+  });
+  const spark = (id, kind, color) => svgSparkline(seriesFor(id, kind), color, lastM, selM);
   const groupTotals = {};   // topId → total agrégé
   const groupDirect = {};   // topId → dépenses directes du parent lui-même
   const groupKids   = {};   // topId → [{ id, value }]
@@ -2843,7 +3109,6 @@ function renderStats() {
 
   const kpi = (label, value, cls, sub) =>
     `<div class="stat-kpi"><span class="stat-kpi-label">${label}</span><span class="stat-kpi-value ${cls || ''}">${value}</span>${sub ? `<span class="stat-kpi-sub">${sub}</span>` : ''}</div>`;
-  const lastM  = statsLastMonth(year);
   const period = lastM < 0 ? 'année à venir' : lastM === 11 ? 'année complète' : `janvier → ${MONTHS[lastM].toLowerCase()}`;
 
   let html = `
@@ -2879,13 +3144,18 @@ function renderStats() {
           <span class="cl-item"><span class="cl-swatch bar-rev-sw"></span>Revenus</span>
         </div>
       </div>
-      ${svgGroupedBars(dep, rev)}
+      ${svgGroupedBars(dep, rev, selM)}
     </div>
 
     <div class="chart-card">
-      <h3 class="chart-card-title">Dépenses par catégorie</h3>
+      <div class="chart-card-head">
+        <h3 class="chart-card-title">Dépenses par catégorie${selM !== null ? ` · ${MONTHS[selM]} ${year}` : ''}</h3>
+        ${selM !== null
+          ? `<button type="button" class="btn-legend" id="stats-month-clear">Toute l'année ✕</button>`
+          : `<span class="chart-card-hint">Cliquer sur un mois du graphique pour le détailler</span>`}
+      </div>
       <ul class="cat-rank">
-        ${slices.length ? statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) : '<li class="cat-rank-empty">Aucune dépense</li>'}
+        ${slices.length ? statsRankHtml(slices, { maxCat, totalDep: rankTotal, groupKids, groupDirect, spark }) : '<li class="cat-rank-empty">Aucune dépense</li>'}
       </ul>
     </div>
     </div>`;
@@ -2896,8 +3166,8 @@ function renderStats() {
 
 // Liste de rang des catégories (Stats) : parents agrégés, dépliables vers leurs
 // sous-catégories (+ éventuelle part « directe » du parent).
-function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) {
-  const rankRow = (id, label, color, value, isChild, parentExpandable) => {
+function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect, spark }) {
+  const rankRow = (id, label, color, value, isChild, parentExpandable, sparkHtml) => {
     const expanded = state.statsExpanded.has(id);
     const caret = parentExpandable
       ? `<button class="cat-rank-caret" data-stats-expand="${id}" aria-label="${expanded ? 'Replier' : 'Déplier'}">${expanded ? '▾' : '▸'}</button>`
@@ -2907,6 +3177,7 @@ function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) {
       <span class="op-dot" style="background:${color}"></span>
       <span class="cat-rank-name" title="${label}">${label}</span>
       <span class="cat-rank-bar"><span style="width:${maxCat ? Math.round(value / maxCat * 100) : 0}%;background:${color}"></span></span>
+      ${sparkHtml}
       <span class="cat-rank-val">${fmtEUR(value)}</span>
       <span class="cat-rank-pct">${totalDep ? Math.round(value / totalDep * 100) : 0}%</span>
     </li>`;
@@ -2916,15 +3187,15 @@ function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) {
   for (const s of slices) {
     const kids = groupKids[s.id];
     const hasKids = kids && kids.length > 0;
-    out += rankRow(s.id, s.label, s.color, s.value, false, hasKids);
+    out += rankRow(s.id, s.label, s.color, s.value, false, hasKids, spark(s.id, 'group', s.color));
     if (hasKids && state.statsExpanded.has(s.id)) {
       const sorted = [...kids].sort((a, b) => b.value - a.value);
       for (const k of sorted) {
         const c = getCat(k.id);
-        out += rankRow(k.id, c.label, c.color, k.value, true, false);
+        out += rankRow(k.id, c.label, c.color, k.value, true, false, spark(k.id, 'child', c.color));
       }
       const direct = groupDirect[s.id] || 0;
-      if (direct > 0) out += rankRow(s.id + '__direct', `${s.label} (direct)`, s.color, direct, true, false);
+      if (direct > 0) out += rankRow(s.id + '__direct', `${s.label} (direct)`, s.color, direct, true, false, spark(s.id, 'direct', s.color));
     }
   }
   return out;
@@ -2932,8 +3203,17 @@ function statsRankHtml(slices, { maxCat, totalDep, groupKids, groupDirect }) {
 
 function wireStatsNav() {
   const prev = $('stats-prev-year'), next = $('stats-next-year');
-  if (prev) prev.addEventListener('click', () => { state.currentYear--; renderStats(); });
-  if (next) next.addEventListener('click', () => { state.currentYear++; renderStats(); });
+  if (prev) prev.addEventListener('click', () => { state.currentYear--; state.statsMonth = null; renderStats(); });
+  if (next) next.addEventListener('click', () => { state.currentYear++; state.statsMonth = null; renderStats(); });
+  document.querySelectorAll('[data-stats-month]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const m = +btn.dataset.statsMonth;
+      state.statsMonth = state.statsMonth === m ? null : m;
+      renderStats();
+    });
+  });
+  const clear = $('stats-month-clear');
+  if (clear) clear.addEventListener('click', () => { state.statsMonth = null; renderStats(); });
   document.querySelectorAll('.cat-rank-caret[data-stats-expand]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.statsExpand;
@@ -3039,7 +3319,7 @@ async function init() {
   document.addEventListener('keydown', e => {
     // Escape ferme aussi depuis un champ (modale de recherche notamment)
     if (e.key === 'Escape') {
-      closePanel(); closeAddModal(); closeImportModal(); closeRecurringModal(); closeSearchModal();
+      closePanel(); closeAddModal(); closeImportModal(); closeRecurringModal(); closeSearchModal(); closeRelinkModal(); toggleExportMenu(false);
       return;
     }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
@@ -3059,6 +3339,17 @@ async function init() {
   // Aujourd'hui + légende
   $('btn-today').addEventListener('click', goToday);
   $('month-goal-indicator').addEventListener('click', () => setView('goals'));
+  $('btn-export').addEventListener('click', e => { e.stopPropagation(); toggleExportMenu(); });
+  $('export-menu').addEventListener('click', e => {
+    const item = e.target.closest('[data-export]');
+    if (!item) return;
+    toggleExportMenu(false);
+    if (item.dataset.export === 'csv') exportMonthCSV(state.currentYear, state.currentMonth);
+    else exportMonthPDF(state.currentYear, state.currentMonth);
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#export-menu, #btn-export')) toggleExportMenu(false);
+  });
   $('btn-legend').addEventListener('click', () => {
     const leg = $('calendar-legend');
     const hidden = leg.classList.toggle('hidden');
@@ -3111,6 +3402,16 @@ async function init() {
     $('recur-category').value = e.target.value === 'revenu' ? INCOME_CATEGORY : DEFAULT_CATEGORY;
   });
   $('btn-add-recurring').addEventListener('click', () => openRecurringModal());
+  $('btn-relink').addEventListener('click', openRelinkModal);
+  $('modal-relink-close').addEventListener('click', closeRelinkModal);
+  $('btn-relink-cancel').addEventListener('click', closeRelinkModal);
+  $('btn-relink-ok').addEventListener('click', confirmRelink);
+  $('relink-body').addEventListener('change', e => {
+    const i = e.target.dataset.relink;
+    if (i === undefined || !relinkRows[i]) return;
+    relinkRows[i].checked = e.target.checked;
+    renderRelink();
+  });
 
   // Citation au survol du logo : une nouvelle à chaque survol
   showBrandQuote();

@@ -1385,6 +1385,14 @@ function openAddModal(dateStr, prefill = null, editId = null, recurId = null) {
     $('add-category').appendChild(opt);
   }
   $('add-category').value = catId;
+  // Opération liée à une récurrence (rapprochée à l'import ou saisie via « + ») :
+  // le lien est visible et modifiable, sinon une erreur de rapprochement resterait
+  // cachée sous le libellé de la récurrence dans le panneau du jour.
+  const linkedTask = editId && prefill?.recurId && state.recurring.find(t => t.id === prefill.recurId);
+  $('add-recur-field').classList.toggle('hidden', !linkedTask);
+  $('add-recur').innerHTML = linkedTask
+    ? `<option value="${escHtml(linkedTask.id)}">${escHtml(linkedTask.label)}</option><option value="">Aucune (opération ponctuelle)</option>`
+    : '';
   $('modal-add-title').textContent = editId ? 'Modifier l\'opération' : 'Nouvelle opération';
   $('modal-add').classList.remove('hidden');
   $('add-label').focus();
@@ -1413,7 +1421,9 @@ async function saveNewExpense() {
     const idx = state.expenses.findIndex(e => e.id === editingExpenseId);
     if (idx === -1) return;
     const prev = { ...state.expenses[idx] };
-    state.expenses[idx] = { ...prev, label, amount, type, category };
+    const next = { ...prev, label, amount, type, category };
+    if (!$('add-recur-field').classList.contains('hidden') && !$('add-recur').value) delete next.recurId;
+    state.expenses[idx] = next;
     closeAddModal();
     renderCalendar();
     renderDayPanel();

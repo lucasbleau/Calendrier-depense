@@ -91,13 +91,14 @@ module.exports = withDb('expenses', 'GET,POST,PUT,DELETE,OPTIONS', async (req, r
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'Paramètre id requis' });
 
-    const { label, amount, type, category } = req.body;
+    const { label, amount, type, category, recurId } = req.body;
     const err = validateExpense({ date: req.body.date, label, amount, type });
     if (err) return res.status(400).json({ error: err });
 
+    // recurId absent ou vide = opération détachée de sa récurrence
     await client.query(
-      'UPDATE expenses SET label = $1, amount = $2, type = $3, category = $4 WHERE id = $5 AND user_id = $6',
-      [label, amount, type, category, id, uid]
+      'UPDATE expenses SET label = $1, amount = $2, type = $3, category = $4, recur_id = $5 WHERE id = $6 AND user_id = $7',
+      [label, amount, type, category, recurId || null, id, uid]
     );
     return res.json({ ok: true });
   }
